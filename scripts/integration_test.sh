@@ -22,6 +22,9 @@ done
 IMAGE=${SLM_IMAGE:-simple_llm:${BACKEND}}
 MODELS_DIR=${SLM_MODELS_DIR:-$PWD/data/models}
 CACHE_DIR=${SLM_CACHE_DIR:-$PWD/data/cache}
+# reasoning models would spend the small test token budgets thinking;
+# keep the suite on non-thinking output (matches the production profiles)
+EXTRA_ARGS=${SLM_EXTRA_ARGS:-"--reasoning off"}
 
 cleanup() { docker rm -f "${NAME}" >/dev/null 2>&1 || true; }
 trap cleanup EXIT
@@ -30,6 +33,7 @@ cleanup
 docker run -d --name "${NAME}" --gpus all --ipc=host \
   -e CUDA_VISIBLE_DEVICES="${GPU}" \
   -e SLM_MODEL="${MODEL}" -e SLM_PORT=8011 -e SLM_CTX_SIZE=8192 -e SLM_PARALLEL=4 \
+  -e SLM_EXTRA_ARGS="${EXTRA_ARGS}" \
   $( [ -f secrets.env ] && echo --env-file secrets.env ) \
   -v "${MODELS_DIR}":/models -v "${CACHE_DIR}":/data/cache \
   -p "127.0.0.1:${PORT}:8011" \
