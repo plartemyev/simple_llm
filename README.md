@@ -61,9 +61,9 @@ with the newest 12.x toolkit from the [Arch Linux Archive]
   GPU** — the Dockerfile compiles explicit `sm_XX` cubins
   (`CUDA_ARCH` build-arg, default `86` for Ampere), so no PTX JIT is
   involved.
-- nvcc 12.9 accepts host GCC up to 14.x; the build uses `gcc14` from the
-  current repos and *verifies* the ceiling compiled into
-  `/opt/cuda/include/crt/host_config.h` (fails fast on mismatch).
+- nvcc 12.9 accepts host GCC up to 14.x; the build pins `gcc14` from the
+  archive (dropped from current repos) and *verifies* the ceiling compiled
+  into `/opt/cuda/include/crt/host_config.h` (fails fast on mismatch).
 - If a host driver predates R525 or oddities appear, drop
   `CUDA_PKG_URL` to `cuda-12.8.1-2` (also in the archive) — one-ARG change.
 

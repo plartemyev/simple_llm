@@ -13,13 +13,24 @@
 #     binaries carry SASS for the target GPU (no PTX JIT). We compile
 #     explicit sm_XX cubins via CMAKE_CUDA_ARCHITECTURES below.
 #   - nvcc 12.9 supports host GCC up to 14.x (see Table 2 of the CUDA
-#     12.9 Installation Guide); gcc14 comes from the current repos.
+#     12.9 Installation Guide). `gcc14` has been dropped from current
+#     repos, so the compiler is pinned from the archive as well.
 
 FROM archlinux:base-devel AS build
 
 RUN pacman-key --init \
  && pacman -Syu --noconfirm \
-      git cmake ninja curl wget python gcc14
+      git cmake ninja curl wget python
+
+# --- host compiler for nvcc (gcc14, Arch Linux Archive) ------------------------
+ARG GCC14_VER=14.3.1%2Br416%2Bg44d5743651c4-2
+
+RUN curl -fsSL -o /tmp/gcc14-libs.pkg.tar.zst \
+      "https://archive.archlinux.org/packages/g/gcc14-libs/gcc14-libs-${GCC14_VER}-x86_64.pkg.tar.zst" \
+ && curl -fsSL -o /tmp/gcc14.pkg.tar.zst \
+      "https://archive.archlinux.org/packages/g/gcc14/gcc14-${GCC14_VER}-x86_64.pkg.tar.zst" \
+ && pacman -U --noconfirm /tmp/gcc14-libs.pkg.tar.zst /tmp/gcc14.pkg.tar.zst \
+ && rm /tmp/gcc14*.pkg.tar.zst
 
 # --- CUDA toolkit from the Arch Linux Archive ---------------------------------
 ARG CUDA_PKG_URL=https://archive.archlinux.org/packages/c/cuda/cuda-12.9.1-2-x86_64.pkg.tar.zst
