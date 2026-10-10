@@ -79,10 +79,14 @@ RUN pacman-key --init \
  && /opt/venv/bin/pip install --no-cache-dir "openai>=1.60,<3" "pytest>=8"
 
 # llama-server/llama-cli plus all companion shared libraries (libllama*.so,
-# ggml backends, cudart/cublas copies) produced next to the binaries; the
-# driver's libcuda.so comes from the host via the nvidia container runtime.
+# ggml backends) produced next to the binaries, and the CUDA runtime
+# libraries from the toolkit (the driver's libcuda.so comes from the host
+# via the nvidia container runtime).
 COPY --from=build /src/llama.cpp/build/bin/ /app/bin/
-ENV LD_LIBRARY_PATH=/app/bin
+COPY --from=build /opt/cuda/lib64/libcudart.so.12* /app/cudalib/
+COPY --from=build /opt/cuda/lib64/libcublas.so.12* /app/cudalib/
+COPY --from=build /opt/cuda/lib64/libcublasLt.so.12* /app/cudalib/
+ENV LD_LIBRARY_PATH=/app/bin:/app/cudalib
 
 # repository: client, benchmarks, tests (usable inside the container)
 COPY . /app
