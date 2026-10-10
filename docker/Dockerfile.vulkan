@@ -35,8 +35,8 @@ RUN pacman-key --init \
  && python -m venv /opt/venv \
  && /opt/venv/bin/pip install --no-cache-dir "openai>=1.60,<3" "pytest>=8"
 
-COPY --from=build /src/llama.cpp/build/bin/llama-server /app/bin/llama-server
-COPY --from=build /src/llama.cpp/build/bin/llama-cli /app/bin/llama-cli
+COPY --from=build /src/llama.cpp/build/bin/ /app/bin/
+ENV LD_LIBRARY_PATH=/app/bin
 
 COPY . /app
 
