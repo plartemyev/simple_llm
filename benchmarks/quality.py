@@ -166,6 +166,7 @@ def run_quality(
         "f1_mean": statistics.fmean(f1s) if f1s else 0.0,
         "f1_min": min(f1s) if f1s else 0.0,
         "rules_compliance": compliance,
+        "exact": exact,
         "records": results,
     }
 

@@ -40,6 +40,10 @@ while getopts "g:p:n:" o; do
 done
 shift $((OPTIND - 1))
 EXTRA=("$@")
+if [ -n "${SLM_EXTRA_ARGS:-}" ]; then
+  # shellcheck disable=SC2206  # word splitting of flag lists is intended
+  EXTRA=(${SLM_EXTRA_ARGS} "${EXTRA[@]}")
+fi
 
 docker rm -f "${NAME}" >/dev/null 2>&1 || true
 
