@@ -99,6 +99,13 @@ fragments and each fragment is transformed by its own call. The benchmark
 `[splits]` scenario measures exactly this pattern (per-fragment latency +
 TTFT at concurrency).
 
+Context sizing: llama-server divides `-c` across `--parallel` slots. Per-call budget is
+`prompt + max_tokens` (each fragment call is stateless); the largest production prompt measured
+~412 tokens + 128 output → **2048 tokens per slot ≈ 2× worst case, the practical minimum**. Set
+`-c = slots × 2048`. Context VRAM cost is small at this scale (measured on a 9B Q8_0: 8192×4 vs
+2048×1 differs by only ~0.35 GiB — weights dominate); revisit only if prompts grow (few-shot
+examples) or per-slot context exceeds ~8k (then consider `--cache-type-k q8_0 --cache-type-v q8_0`).
+
 The thin client codifies both profiles:
 
 ```python
