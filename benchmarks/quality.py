@@ -94,12 +94,13 @@ def token_f1(pred: list[str], gold: list[str]) -> dict[str, float]:
 def evaluate(pred_text: str, gold_variants: list[list[str]], rules: Rules) -> dict:
     """Score against the best-matching gold variant.
 
-    F1 uses production-equivalent tokenization: multi-word fragments (a
-    missing comma) are split on whitespace, mirroring the caller-side
-    normalization; format rules are checked on the raw separator split.
+    F1 uses production-equivalent tokenization: separators and hyphens are
+    split on whitespace (the caller-side normalization replaces "-" with " "
+    and splits), so hyphenated compounds are not unfairly merged; format
+    rules are checked on the raw separator split.
     """
     tokens = split_tokens(pred_text, rules)
-    flat = [w for t in tokens for w in t.split()]
+    flat = [w for t in tokens for w in t.replace("-", " ").split()]
     best = max((token_f1(flat, g) for g in gold_variants), key=lambda s: s["f1"])
     return {
         "tokens": tokens,

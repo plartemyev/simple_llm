@@ -54,3 +54,9 @@ def test_evaluate_flattens_multiword_fragments_like_production():
     res = evaluate("LAST YEAR, ME, GO", [["LAST", "YEAR", "ME", "GO"]], Rules())
     assert res["overlap"]["f1"] == 1.0
     assert res["rules"]["single_word_tokens"] is False  # flagged on raw split
+
+
+def test_evaluate_splits_hyphenated_compounds_like_production():
+    # production replaces "-" with " " before splitting glosses
+    res = evaluate("MEETING, PHONE, TURN-OFF", [["MEETING", "PHONE", "TURN", "OFF"]], Rules())
+    assert res["overlap"]["f1"] == 1.0
