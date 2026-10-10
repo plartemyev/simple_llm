@@ -4,14 +4,10 @@
 # (the engine downloads and caches the GGUF; HF_TOKEN is honoured).
 # `approx_gb` is the on-disk size of the chosen quantization, kept for
 # download planning only.
-
-[[model]]
-repo = "ornith-ai/Ornith-1.5-9B-GGUF"
-quant = "Q8_0"
-approx_gb = 10
-license = "MIT"
-params_b = 9
-notes = "Dense 9B of Qwen3.5 lineage, self-improvement post-training; primary candidate"
+#
+# Dropped after evaluation (see parent-project benchmark report):
+#   ornith-ai/Ornith-1.5-9B-GGUF — clear quality outsider on all three
+#   dialects (weakest en, ru direction drift, Armenian absent).
 
 [[model]]
 repo = "unsloth/Qwen3.5-9B-GGUF"

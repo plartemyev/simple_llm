@@ -141,10 +141,12 @@ or mirror-available licenses.
 
 | model | params | quant | license |
 |---|---|---|---|
-| `ornith-ai/Ornith-1.5-9B-GGUF` | 9B | Q8_0 | MIT |
 | `unsloth/Qwen3.5-9B-GGUF` | 9B | Q8_0 | apache-2.0 |
 | `unsloth/Qwen3.5-4B-GGUF` | 4B | Q8_0 | apache-2.0 |
 | `unsloth/gemma-4-12b-it-GGUF` | 12B | Q8_0 | gemma (mirror) |
+
+`ornith-ai/Ornith-1.5-9B-GGUF` was evaluated and dropped as a clear outsider
+(see the parent benchmark report).
 
 ## Benchmarks
 
