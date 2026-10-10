@@ -1,0 +1,16 @@
+# never bake secrets or local state into the image
+.git
+.gitignore
+secrets.env
+*.env
+
+# local model/cache/result state (mounted at run time instead)
+data/
+results/
+benchmarks/data/cc/
+
+# python noise
+__pycache__/
+*.py[cod]
+.pytest_cache/
+*.egg-info/
