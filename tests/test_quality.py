@@ -37,7 +37,20 @@ def test_rule_flags():
 
 
 def test_evaluate_combines_overlap_and_rules():
-    res = evaluate("YESTERDAY, ME, GO, STORE", GOLD, Rules())
+    res = evaluate("YESTERDAY, ME, GO, STORE", [GOLD], Rules())
     assert res["overlap"]["f1"] == 1.0
     assert all(res["rules"].values())
     assert res["tokens"] == GOLD
+
+
+def test_evaluate_best_variant_wins():
+    res = evaluate("A, B", [["X", "Y"], ["A", "B"]], Rules())
+    assert res["overlap"]["f1"] == 1.0
+
+
+def test_evaluate_flattens_multiword_fragments_like_production():
+    # missing comma: "LAST YEAR" arrives as one fragment; the caller-side
+    # normalization splits on whitespace, so scoring must not punish it
+    res = evaluate("LAST YEAR, ME, GO", [["LAST", "YEAR", "ME", "GO"]], Rules())
+    assert res["overlap"]["f1"] == 1.0
+    assert res["rules"]["single_word_tokens"] is False  # flagged on raw split

@@ -93,11 +93,19 @@ def token_f1(pred: list[str], gold: list[str]) -> dict[str, float]:
     return {"precision": precision, "recall": recall, "f1": f1}
 
 
-def evaluate(pred_text: str, gold_tokens: list[str], rules: Rules) -> dict:
+def evaluate(pred_text: str, gold_variants: list[list[str]], rules: Rules) -> dict:
+    """Score against the best-matching gold variant.
+
+    F1 uses production-equivalent tokenization: multi-word fragments (a
+    missing comma) are split on whitespace, mirroring the caller-side
+    normalization; format rules are checked on the raw separator split.
+    """
     tokens = split_tokens(pred_text, rules)
+    flat = [w for t in tokens for w in t.split()]
+    best = max((token_f1(flat, g) for g in gold_variants), key=lambda s: s["f1"])
     return {
         "tokens": tokens,
-        "overlap": token_f1(tokens, gold_tokens),
+        "overlap": best,
         "rules": rule_flags(tokens, rules),
         "raw": pred_text,
     }
@@ -138,7 +146,8 @@ def run_quality(
         except Exception as e:  # keep scoring the rest
             pred = f"__ERROR__ {e}"
         rules = Rules.from_dict(rec.get("rules"))
-        ev = evaluate(pred, rec["expected"], rules)
+        variants = rec.get("expected_variants") or [rec["expected"]]
+        ev = evaluate(pred, variants, rules)
         results[i] = {"id": rec["id"], **ev}
 
     with ThreadPoolExecutor(max_workers=concurrency) as ex:
@@ -158,7 +167,8 @@ def run_quality(
     exact = sum(
         1
         for rec, r in zip(gold, results)
-        if r and r["tokens"] and r["tokens"] == rec["expected"]
+        if r and r["tokens"] and [w for t in r["tokens"] for w in t.split()] in
+        (rec.get("expected_variants") or [rec["expected"]])
     )
 
     return {
