@@ -9,9 +9,8 @@ __pycache__/
 *.env
 secrets.env
 
-# benchmark artifacts & model caches
+# benchmark artifacts & model caches (root-level only)
 results/
-benchmarks/data/cc/
-data/
+/data/
 *.gguf
 *.log
