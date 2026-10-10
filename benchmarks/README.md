@@ -56,6 +56,7 @@ caller's prompt templates are applied on their side:
 {"id": "en-001",
  "messages": [{"role": "system", "content": "..."}, {"role": "user", "content": "..."}],
  "expected": ["TOKEN1", "TOKEN2"],
+ "expected_variants": [["TOKEN1", "TOKEN2B"]],
  "rules": {"uppercase": true, "single_word_tokens": true, "banned_chars": "()", "separator": ","},
  "max_tokens": 128}
 ```
@@ -63,6 +64,13 @@ caller's prompt templates are applied on their side:
 Scores: multiset token precision/recall/F1 after normalization (case fold,
 punctuation strip) plus rule compliance rates (uppercase-only tokens,
 single-word tokens, banned characters absent).
+
+Normalization is production-parity: token boundaries follow the separator,
+then hyphens are treated as separators and multi-word fragments are split on
+whitespace before F1 (compliance rules still judge the raw split).
+`expected_variants` (optional) lists acceptable alternate gold sequences —
+the record is scored against the best-matching variant (use for morphology,
+plural, or pronoun-drop alternates).
 
 ## Notes
 
