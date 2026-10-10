@@ -32,6 +32,8 @@ args=(
 
 if [ -f "${MODEL}" ]; then
   args+=(-m "${MODEL}")
+elif [ -f "/models/${MODEL}" ]; then
+  args+=(-m "/models/${MODEL}")
 else
   args+=(-hf "${MODEL}")
 fi
