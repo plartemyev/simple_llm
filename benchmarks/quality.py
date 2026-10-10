@@ -33,8 +33,6 @@ from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from pathlib import Path
 
-from simple_llm.client import LLMClient
-
 _WORD = re.compile(r"[\w\d]+", re.UNICODE)
 
 
@@ -128,6 +126,8 @@ def run_quality(
     concurrency: int = 4,
 ) -> dict:
     """Replay every gold record and score the outputs."""
+    from simple_llm.client import LLMClient  # deferred: scoring alone needs no client
+
     clients = [
         LLMClient(base_url, model)
         for _ in range(max(1, concurrency))
