@@ -1,0 +1,17 @@
+__pycache__/
+*.py[cod]
+.venv/
+.pytest_cache/
+*.egg-info/
+
+# secrets (HF token etc.) — never commit
+.env
+*.env
+secrets.env
+
+# benchmark artifacts & model caches
+results/
+benchmarks/data/cc/
+data/
+*.gguf
+*.log

@@ -1,0 +1,48 @@
+# syntax=docker/dockerfile:1
+#
+# Arch Linux-based image serving an OpenAI-compatible LLM endpoint via
+# llama.cpp (llama-server), Vulkan compute backend.
+#
+# Vulkan keeps the image free of any CUDA pinning: no toolkit, no driver
+# version coupling beyond what Vulkan ICDs on the host provide. On NVIDIA
+# hosts the driver's Vulkan producer must be reachable inside the container
+# (nvidia-container-toolkit with NVIDIA_DRIVER_CAPABILITIES including
+# "graphics", plus the host's nvidia_icd.json — see README).
+
+FROM archlinux:base-devel AS build
+
+RUN pacman-key --init \
+ && pacman -Syu --noconfirm \
+      git cmake ninja curl wget python \
+      vulkan-headers vulkan-icd-loader vulkan-validation-layers shaderc spirv-tools
+
+ARG LLAMA_CPP_REF=v0.6.0
+
+RUN git clone --depth 1 --branch "${LLAMA_CPP_REF}" https://github.com/ggml-org/llama.cpp /src/llama.cpp \
+ && cmake -S /src/llama.cpp -B /src/llama.cpp/build \
+      -DCMAKE_BUILD_TYPE=Release \
+      -DGGML_VULKAN=ON \
+      -DGGML_NATIVE=OFF \
+      -DLLAMA_CURL=ON \
+ && cmake --build /src/llama.cpp/build --config Release -j"$(nproc)" \
+      --target llama-server llama-cli
+
+FROM archlinux:base-devel AS runtime
+
+RUN pacman-key --init \
+ && pacman -Syu --noconfirm python python-pip curl \
+      vulkan-icd-loader \
+ && python -m venv /opt/venv \
+ && /opt/venv/bin/pip install --no-cache-dir "openai>=1.60,<3" "pytest>=8"
+
+COPY --from=build /src/llama.cpp/build/bin/llama-server /app/bin/llama-server
+COPY --from=build /src/llama.cpp/build/bin/llama-cli /app/bin/llama-cli
+
+COPY . /app
+
+ENV PATH="/app/bin:/opt/venv/bin:${PATH}" \
+    HOME=/data/cache
+RUN mkdir -p /data/cache /models
+WORKDIR /app
+EXPOSE 8011
+ENTRYPOINT ["/app/docker/entrypoint.sh"]

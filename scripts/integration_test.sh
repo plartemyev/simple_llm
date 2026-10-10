@@ -1,0 +1,57 @@
+#!/usr/bin/env bash
+# End-to-end integration check: start the service with the given model, run
+# the pytest integration suite inside the image, tear the service down.
+#
+#   usage: scripts/integration_test.sh MODEL [-g GPU] [-p PORT] [-b cuda|vulkan]
+set -euo pipefail
+cd "$(dirname "$0")/.."
+
+MODEL=${1:?usage: integration_test.sh MODEL [-g GPU] [-p PORT] [-b cuda|vulkan]}
+shift
+GPU=1; PORT=8011; BACKEND=${SLM_BACKEND:-cuda}; NAME=simple_llm_it
+while getopts "g:p:b:n:" o; do
+  case $o in
+    g) GPU=$OPTARG ;;
+    p) PORT=$OPTARG ;;
+    b) BACKEND=$OPTARG ;;
+    n) NAME=$OPTARG ;;
+    *) exit 2 ;;
+  esac
+done
+
+IMAGE=${SLM_IMAGE:-simple_llm:${BACKEND}}
+MODELS_DIR=${SLM_MODELS_DIR:-$PWD/data/models}
+CACHE_DIR=${SLM_CACHE_DIR:-$PWD/data/cache}
+
+cleanup() { docker rm -f "${NAME}" >/dev/null 2>&1 || true; }
+trap cleanup EXIT
+cleanup
+
+docker run -d --name "${NAME}" --gpus all --ipc=host \
+  -e CUDA_VISIBLE_DEVICES="${GPU}" \
+  -e SLM_MODEL="${MODEL}" -e SLM_PORT=8011 -e SLM_CTX_SIZE=8192 -e SLM_PARALLEL=4 \
+  $( [ -f secrets.env ] && echo --env-file secrets.env ) \
+  -v "${MODELS_DIR}":/models -v "${CACHE_DIR}":/data/cache \
+  -p "127.0.0.1:${PORT}:8011" \
+  "${IMAGE}" >/dev/null
+echo "Waiting for ${IMAGE} to serve model ${MODEL} ..."
+
+# wait until /health answers (first start may download the model)
+for _ in $(seq 1 240); do
+  if curl -fsS "http://127.0.0.1:${PORT}/health" >/dev/null 2>&1; then break; fi
+  if [ "$(docker inspect -f '{{.State.Status}}' "${NAME}" 2>/dev/null)" != "running" ]; then
+    echo "container died during startup:" >&2
+    docker logs --tail 50 "${NAME}" >&2
+    exit 1
+  fi
+  sleep 5
+done
+curl -fsS "http://127.0.0.1:${PORT}/health" >/dev/null || { echo "service did not become healthy" >&2; exit 1; }
+echo "service is up"
+
+MODEL_ID="$(curl -fsS "http://127.0.0.1:${PORT}/v1/models" | python3 -c 'import json,sys; print(json.load(sys.stdin)["data"][0]["id"])')"
+echo "served model id: ${MODEL_ID}"
+
+docker exec -e SLM_BASE_URL="http://127.0.0.1:8011/v1" -e SLM_MODEL_ID="${MODEL_ID}" \
+  "${NAME}" python -m pytest tests/ -m integration -v
+echo "integration tests passed"

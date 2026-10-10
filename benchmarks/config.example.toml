@@ -1,0 +1,40 @@
+# Call profiles and benchmark parameters.
+#
+# Two workload shapes are covered:
+#
+# [phrase]  — a complete phrase is transformed in ONE non-streaming call.
+#             Output is a short structured token sequence, so max_tokens can
+#             stay tight (~2x the longest expected output). Low temperature
+#             keeps the structured output near-deterministic.
+#
+# [splits]  — a dictation stream is processed as a sequence of SMALL
+#             fragments, one call per fragment. Latency (ideally TTFT)
+#             dominates; outputs are tiny. Streaming is enabled so the
+#             caller can react to the first token instead of the full text.
+#
+# The server should run with --parallel >= expected concurrent callers and a
+# context size that fits system prompt + longest phrase comfortably.
+
+[phrase]
+temperature = 0.1
+max_tokens = 128
+timeout_s = 60.0
+stream = false
+
+[splits]
+temperature = 0.1
+max_tokens = 64
+timeout_s = 30.0
+stream = true
+
+[server]
+ctx = 8192
+parallel = 4
+
+[bench]
+n_phrase = 30          # phrase calls per (model, lang, concurrency)
+n_streams = 8          # dictation streams per (model, lang, concurrency)
+fragments_per_stream = 10
+concurrency_levels = [1, 4]
+warmup = 3
+seed = 1234

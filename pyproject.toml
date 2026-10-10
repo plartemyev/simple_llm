@@ -1,0 +1,28 @@
+[project]
+name = "simple_llm"
+version = "0.1.0"
+description = "Self-hosted OpenAI-compatible LLM serving on Arch Linux (llama.cpp, CUDA/Vulkan) with benchmark and integration-test infrastructure"
+readme = "README.md"
+license = "GPL-2.0-only"
+requires-python = ">=3.11"
+dependencies = [
+    "openai>=1.60,<3",
+]
+
+[project.optional-dependencies]
+test = [
+    "pytest>=8",
+]
+
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+packages = ["simple_llm", "benchmarks"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+markers = [
+    "integration: requires a running server (SLM_BASE_URL, SLM_MODEL_ID)",
+]
