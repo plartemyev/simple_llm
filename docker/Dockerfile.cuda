@@ -51,6 +51,9 @@ RUN curl -fsSL -o /tmp/cuda.pkg.tar.zst "${CUDA_PKG_URL}" \
       exit 1; \
     fi
 
+# Arch installs the toolkit under /opt/cuda; make nvcc visible to CMake
+ENV PATH="/opt/cuda/bin:${PATH}"
+
 # --- llama.cpp -----------------------------------------------------------------
 ARG LLAMA_CPP_REF=v0.6.0
 
