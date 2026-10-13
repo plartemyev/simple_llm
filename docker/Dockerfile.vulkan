@@ -31,7 +31,7 @@ FROM archlinux:base-devel AS runtime
 
 RUN pacman-key --init \
  && pacman -Syu --noconfirm python python-pip curl \
-      vulkan-icd-loader \
+      vulkan-icd-loader libglvnd libx11 libxext libxcb \
  && python -m venv /opt/venv \
  && /opt/venv/bin/pip install --no-cache-dir "openai>=1.60,<3" "pytest>=8"
 
