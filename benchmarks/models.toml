@@ -26,3 +26,21 @@ approx_gb = 14
 license = "gemma (ungated mirror of google/gemma-4-12b-it)"
 params_b = 12
 notes = "Strong multilingual instruction follower; heaviest candidate"
+
+# --- round 2 (2026-10-11): Russian-specialist models ---
+
+[[model]]
+repo = "NikolayKozloff/YandexGPT-5-Lite-8B-instruct-Q8_0-GGUF"
+quant = "Q8_0"
+approx_gb = 8
+license = "apache-2.0"
+params_b = 8
+notes = "YandexGPT 5 Lite 8B instruct, Russian-specialist dense 8B; official yandex GGUF repo ships Q4_K_M only, Q8_0 from NikolayKozloff (community)"
+
+[[model]]
+repo = "bartowski/ai-sage_GigaChat3-10B-A1.8B-GGUF"
+quant = "Q8_0"
+approx_gb = 11
+license = "MIT"
+params_b = 10
+notes = "Sber GigaChat 3 Lightning, MoE 10B-total/1.8B-active trained from scratch (MLA+MTP; MTP speedup is vLLM-only, not llama.cpp); Sber's in-class Russian leader; Armenian not listed in training languages"
