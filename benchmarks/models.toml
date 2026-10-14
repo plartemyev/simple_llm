@@ -44,3 +44,45 @@ approx_gb = 11
 license = "MIT"
 params_b = 10
 notes = "Sber GigaChat 3 Lightning, MoE 10B-total/1.8B-active trained from scratch (MLA+MTP; MTP speedup is vLLM-only, not llama.cpp); Sber's in-class Russian leader; Armenian not listed in training languages"
+
+# --- round 3 (2026-10-14): 27-35B class, heavy quant (Q8 does not fit one 3090) ---
+
+[[model]]
+repo = "unsloth/Qwen3.5-27B-GGUF"
+quant = "UD-Q4_K_XL"
+approx_gb = 16.4
+license = "apache-2.0"
+params_b = 27
+notes = "ArmBench-LLM 1.0 #1 open model for Armenian (0.5767 avg) — strongest published prior for the deciding dialect"
+
+[[model]]
+repo = "unsloth/Qwen3.8-27B-GGUF"
+quant = "UD-Q4_K_XL"
+approx_gb = 16.4
+license = "apache-2.0"
+params_b = 27
+notes = "Newest dense VLM of the line (2026-08, 201 supported languages); thinking-capable, served with --reasoning off"
+
+[[model]]
+repo = "unsloth/Qwen3.6-35B-A3B-GGUF"
+quant = "UD-Q4_K_XL"
+approx_gb = 20.8
+license = "apache-2.0"
+params_b = 35
+notes = "MoE 35B-total/3B-active: 35B-class quality at ~3B serving speed; tightest VRAM fit of the round (24 GB card)"
+
+[[model]]
+repo = "unsloth/Qwen3.6-27B-GGUF"
+quant = "UD-Q4_K_XL"
+approx_gb = 16.4
+license = "apache-2.0"
+params_b = 27
+notes = "2026-04 dense, multimodal hybrid-thinking; the multimodal/thinking deltas are unused by the gloss task — included for the complete family picture"
+
+[[model]]
+repo = "t-tech/T-pro-it-2.0-GGUF"
+quant = "Q4_K_M"
+approx_gb = 18.4
+license = "apache-2.0"
+params_b = 32
+notes = "T-Bank Russian-specialist dense 32B; official GGUF; ru-niche overlap with YandexGPT-5-Lite-8B, Armenian unknown"
