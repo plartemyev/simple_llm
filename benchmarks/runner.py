@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import statistics
 import subprocess
 import threading
@@ -186,7 +187,12 @@ def main() -> None:
             "fragments_per_stream": cfg["fragments_per_stream"],
         }
 
-    client = LLMClient(args.base_url, args.model, timeout_s=cfg["timeout_s"])
+    client = LLMClient(
+        args.base_url,
+        args.model,
+        timeout_s=cfg["timeout_s"],
+        api_key=os.environ.get("OPENAI_API_KEY") or "not-needed",
+    )
     params = CallParams(
         temperature=cfg["temperature"],
         max_tokens=cfg["phrase_max_tokens" if args.scenario == "phrase" else "splits_max_tokens"],
