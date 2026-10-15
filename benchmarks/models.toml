@@ -86,3 +86,45 @@ approx_gb = 18.4
 license = "apache-2.0"
 params_b = 32
 notes = "T-Bank Russian-specialist dense 32B; official GGUF; ru-niche overlap with YandexGPT-5-Lite-8B, Armenian unknown"
+
+# --- round 4 (2026-10-15): A3B-active MoE class ---
+
+[[model]]
+repo = "unsloth/ERNIE-4.5-21B-A3B-Thinking-GGUF"
+quant = "UD-Q4_K_XL"
+approx_gb = 12.5
+license = "apache-2.0"
+params_b = 21
+notes = "Baidu ERNIE 4.5, 21B-total/3B-active; the only non-Qwen A3B with a multilingual reputation; thinking-capable, served with --reasoning off"
+
+[[model]]
+repo = "ggml-org/gpt-oss-20b-GGUF"
+quant = "MXFP4"
+approx_gb = 11.3
+license = "apache-2.0"
+params_b = 21
+notes = "OpenAI gpt-oss-20b, 21B-total/3.6B-active, native MXFP4; English-centric — Armenian expected to fail; ecosystem data point"
+
+[[model]]
+repo = "nakodanei/Ring-lite-Q4_K_M-GGUF"
+quant = "Q4_K_M"
+approx_gb = 10.4
+license = "apache-2.0"
+params_b = 17
+notes = "inclusionAI Ring-lite, 16.8B-total/2.75B-active RL-reasoning MoE; zh/en focused"
+
+[[model]]
+repo = "mradermacher/Ling-lite-GGUF"
+quant = "Q4_K_M"
+approx_gb = 10
+license = "apache-2.0"
+params_b = 17
+notes = "inclusionAI Ling-lite, 16.8B-total/2.75B-active instruct MoE; zh/en focused"
+
+[[model]]
+repo = "bartowski/moonshotai_Kimi-Linear-48B-A3B-Instruct-GGUF"
+quant = "Q3_K_XL"
+approx_gb = 22.3
+license = "modified-MIT (moonshot)"
+params_b = 48
+notes = "Moonshot Kimi-Linear, 48B-total/3B-active hybrid linear attention — most total knowledge per active param in class; Q3 required to fit 24 GB, tightest VRAM fit of the whole evaluation"
