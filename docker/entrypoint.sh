@@ -12,6 +12,11 @@
 #   SLM_GPU_LAYERS  layers offloaded to GPU (default 999 = all)
 #   SLM_EXTRA_ARGS  extra llama-server flags, word-split
 #   HF_TOKEN        optional; required only for gated HF repositories
+#
+# llama-server also honors its native LLAMA_ARG_* env vars directly (e.g.
+# LLAMA_ARG_CPU_MOE / LLAMA_ARG_N_CPU_MOE / LLAMA_ARG_OVERRIDE_TENSOR for MoE
+# and tensor-placement tuning, see scripts/run_server.sh); flags given here
+# via SLM_EXTRA_ARGS take precedence over them.
 set -euo pipefail
 
 MODEL=${SLM_MODEL:?set SLM_MODEL to a HF id (repo:quant) or a /models/*.gguf path}

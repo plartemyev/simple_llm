@@ -19,6 +19,7 @@ a hosted LLM API with a local GPU.
 
 ```
 docker/            Dockerfile.cuda / Dockerfile.vulkan + entrypoint
+compose.yaml       docker compose service definitions (cuda / vulkan-nvidia / vulkan-amd)
 scripts/           build / run / data-pull / integration-test helpers
 simple_llm/        thin OpenAI-compatible client (phrase + splits profiles)
 benchmarks/        benchmark infrastructure (slicer, runner, quality, report)
@@ -36,6 +37,8 @@ echo 'HF_TOKEN=hf_xxx' > secrets.env && chmod 600 secrets.env
 
 # 3. serve a model (HF id:quant or a local .gguf inside ./data/models)
 scripts/run_server.sh ornith-ai/Ornith-1.5-9B-GGUF:Q8_0 -g 1 -p 8011
+#    AMD Vulkan host instead (see "GPU backend notes"):
+#    SLM_BACKEND=vulkan SLM_GPU_DRIVER=amd scripts/run_server.sh MODEL
 
 # 4. use it
 curl -s http://127.0.0.1:8011/v1/chat/completions \
@@ -44,7 +47,56 @@ curl -s http://127.0.0.1:8011/v1/chat/completions \
 ```
 
 The first start downloads the model into `./data/cache` (mounted at
-`/data/cache`); subsequent starts are instant.
+`/data/cache`); subsequent starts are instant. The directory is tracked in
+git through its inner `.gitignore` (contents stay local); the container
+runs as the invoking user (compose: `SLM_UID`/`SLM_GID`, default 1000), so
+downloads remain host-user-owned.
+
+### Docker Compose
+
+`compose.yaml` defines the same service for both backends and is an
+alternative to `run_server.sh` (images are built automatically when
+missing):
+
+```shell
+SLM_MODEL=ornith-ai/Ornith-1.5-9B-GGUF:Q8_0 docker compose up -d cuda   # or: vulkan-nvidia (NVIDIA) / vulkan-amd (AMD)
+docker compose logs -f cuda    # then use the endpoint as shown above
+docker compose down cuda       # teardown needs the service name: every
+                               # service has a profile, so plain `down`
+                               # selects nothing
+```
+
+The same environment variables configure it (see [Configuration](#configuration));
+`secrets.env` (e.g. `HF_TOKEN`) is loaded when present, and variables can
+also live in a `.env` file next to `compose.yaml` (auto-loaded, git-ignored).
+
+## Configuration
+
+Environment variables select the backend, size the server, and tune
+llama-server. *scripts* = `scripts/run_server.sh` +
+`scripts/integration_test.sh`; *compose* = `compose.yaml`; *container* = read
+by the image entrypoint / llama-server directly.
+
+| variable | used by | default | purpose |
+|---|---|---|---|
+| `SLM_MODEL` | scripts, compose | — (required) | HF id `owner/repo:QUANT` or a `.gguf` name inside `./data/models` |
+| `SLM_BACKEND` | scripts | `cuda` | image backend: `cuda` or `vulkan` |
+| `SLM_IMAGE` | scripts, compose | `simple_llm:$SLM_BACKEND` | image tag override |
+| `SLM_GPU` | scripts, compose | `1` | GPU index — CUDA: `CUDA_VISIBLE_DEVICES`; with `SLM_GPU_DRIVER=amd`: overrides the Vulkan device (which defaults to 0) |
+| `SLM_GPU_DRIVER` | scripts | `nvidia` | `amd` switches to `/dev/dri` + `GGML_VK_VISIBLE_DEVICES` |
+| `SLM_PORT` | scripts, compose | `8011` | host port (the container always listens on 8011) |
+| `SLM_CTX_SIZE` | scripts, compose | `8192` | context size, tokens |
+| `SLM_PARALLEL` | scripts, compose | `4` | concurrent slots |
+| `SLM_MODELS_DIR` / `SLM_CACHE_DIR` | scripts | `./data/models` / `./data/cache` | bind-mount sources |
+| `SLM_EXTRA_ARGS` | scripts, compose | — | extra llama-server flags, word-split; overrides `LLAMA_ARG_*` env vars |
+| `SLM_UID` / `SLM_GID` | compose | `1000` | container uid:gid, keeps `./data` host-user-owned |
+| `SLM_GROUP_ADD` | scripts | — | supplementary host group ids (space/comma separated) for group-restricted `/dev/dri/renderD*` nodes; compose: `group_add` |
+| `LLAMA_ARG_CPU_MOE`, `LLAMA_ARG_N_CPU_MOE`, `LLAMA_ARG_OVERRIDE_TENSOR` | both (passthrough) | — | MoE / tensor-placement tuning — see [MoE offload](#moe-offload--tensor-placement) |
+| `HF_TOKEN` | both | — | token for gated HF repos (`secrets.env` or environment) |
+
+Container-only (not forwarded by the helpers): `SLM_HOST`, `SLM_GPU_LAYERS`.
+Image build args (`CUDA_ARCH`, `CUDA_PKG_URL`, `LLAMA_CPP_REF`) are
+documented in the `docker/Dockerfile.*` headers.
 
 ## GPU backend notes
 
@@ -70,7 +122,29 @@ with the newest 12.x toolkit from the [Arch Linux Archive]
 ### Vulkan
 
 `docker/Dockerfile.vulkan` builds the same server against the system Vulkan
-SDK (`vulkan-headers`, `shaderc`). Runtime requirements on NVIDIA hosts:
+SDK (`vulkan-headers`, `shaderc`). The runtime image ships Mesa's RADV ICD
+(`vulkan-radeon`), so the GPU vendor is decided by runtime wiring only.
+
+**AMD hosts** work out of the box: the container's RADV drives the host
+`amdgpu` kernel driver through `/dev/dri` render nodes (host needs the
+standard Mesa/`linux-firmware` stack; Mesa ≥ 24.x exposes
+`VK_KHR_cooperative_matrix`, which llama.cpp uses automatically — older
+Mesa falls back to slower code paths). Start with
+`SLM_GPU_DRIVER=amd scripts/run_server.sh ...` or
+`docker compose up -d vulkan-amd`; select the GPU via
+`GGML_VK_VISIBLE_DEVICES` (defaults to Vulkan device 0; `SLM_GPU` overrides).
+
+The container runs as a non-root user, so it can only open render nodes it
+has permission for. World-accessible nodes (`0666`, the Arch default) need
+nothing; group-restricted ones (`0660 root:render` — the common case on
+Debian-family hosts) need the owning group added to the container: set
+`SLM_GROUP_ADD=<gid>` for the scripts (comma/space separated ids) or add
+`group_add: [<gid>]` to the compose service; find the gid with
+`stat -c %g /dev/dri/renderD128` on the host.
+
+**NVIDIA hosts** need the driver's Vulkan producer injected, because the
+image deliberately carries no NVIDIA userspace (it would version-lock the
+image to the host driver):
 
 - driver with Vulkan support,
 - container gets the driver's Vulkan producer via nvidia-container-toolkit
@@ -78,7 +152,28 @@ SDK (`vulkan-headers`, `shaderc`). Runtime requirements on NVIDIA hosts:
 - an NVIDIA ICD json visible inside the container (mount
   `/usr/share/vulkan/icd.d/nvidia_icd.json` if the host provides one).
 
-GPU/device selection inside Vulkan runs uses `GGML_VK_VISIBLE_DEVICES`.
+GPU/device selection inside Vulkan runs uses `GGML_VK_VISIBLE_DEVICES`
+(`run_server.sh` forwards it when set).
+
+### MoE offload / tensor placement
+
+The llama-server native `LLAMA_ARG_*` tuning options are forwarded from the
+host environment into the container by both `scripts/run_server.sh` and
+`compose.yaml` when set (flags given via `SLM_EXTRA_ARGS` or `--` take
+precedence over them):
+
+| env var | llama-server flag |
+|---|---|
+| `LLAMA_ARG_CPU_MOE=1` | `--cpu-moe` — keep all MoE expert weights on CPU |
+| `LLAMA_ARG_N_CPU_MOE=N` | `--n-cpu-moe N` — same, first N layers only |
+| `LLAMA_ARG_OVERRIDE_TENSOR=...` | `-ot` / `--override-tensor` — comma-separated `tensor_pattern=buffer` overrides, e.g. `exps=CPU,iqk=CPU` |
+
+They work with both backends. CPU buffers (`exps=CPU`) are universal;
+GPU-side overrides must name the backend's buffers — `CUDA0`, `CUDA1`, ...
+on CUDA builds, `VULKAN0`, `VULKAN1`, ... on Vulkan builds. Offloading
+expert weights to CPU trades throughput for VRAM; useful when a MoE model's
+dense layers fit on the GPU but its expert tensors do not. Set vars only to
+non-empty values (an empty `LLAMA_ARG_N_CPU_MOE` fails to parse).
 
 ## Call profiles
 
@@ -170,6 +265,7 @@ repo on purpose); the schema is documented in `benchmarks/README.md`.
 ```shell
 uv run --extra test python -m pytest tests/ -m "not integration"   # unit, any host
 scripts/integration_test.sh ornith-ai/Ornith-1.5-9B-GGUF:Q8_0 -g 1  # full stack on a GPU host
+# AMD host: SLM_GPU_DRIVER=amd scripts/integration_test.sh MODEL -b vulkan
 ```
 
 ## License

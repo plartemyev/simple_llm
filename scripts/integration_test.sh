@@ -3,12 +3,22 @@
 # the pytest integration suite inside the image, tear the service down.
 #
 #   usage: scripts/integration_test.sh MODEL [-g GPU] [-p PORT] [-b cuda|vulkan]
+#
+#   SLM_GPU_DRIVER nvidia|amd  (default nvidia; amd passes /dev/dri and uses
+#                              GGML_VK_VISIBLE_DEVICES instead of CUDA_VISIBLE_DEVICES)
+#   SLM_GROUP_ADD  supplementary host group ids (space/comma separated) for
+#                  group-restricted /dev/dri/renderD* nodes
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
 MODEL=${1:?usage: integration_test.sh MODEL [-g GPU] [-p PORT] [-b cuda|vulkan]}
 shift
 GPU=1; PORT=8011; BACKEND=${SLM_BACKEND:-cuda}; NAME=simple_llm_it
+GPU_DRIVER=${SLM_GPU_DRIVER:-nvidia}
+case ${GPU_DRIVER} in
+  nvidia|amd) ;;
+  *) echo "SLM_GPU_DRIVER must be nvidia or amd" >&2; exit 2 ;;
+esac
 while getopts "g:p:b:n:" o; do
   case $o in
     g) GPU=$OPTARG ;;
@@ -30,8 +40,23 @@ cleanup() { docker rm -f "${NAME}" >/dev/null 2>&1 || true; }
 trap cleanup EXIT
 cleanup
 
-docker run -d --name "${NAME}" --gpus all --ipc=host \
-  -e CUDA_VISIBLE_DEVICES="${GPU}" \
+GPU_ARGS=(--gpus all -e CUDA_VISIBLE_DEVICES="${GPU}")
+if [ "${GPU_DRIVER}" = amd ]; then
+  GPU_ARGS=(--device /dev/dri -e "GGML_VK_VISIBLE_DEVICES=${GGML_VK_VISIBLE_DEVICES:-${SLM_GPU:-0}}")
+fi
+GROUP_ARGS=()
+if [ -n "${SLM_GROUP_ADD:-}" ]; then
+  # supplementary host groups (e.g. render/video); word splitting intended
+  # shellcheck disable=SC2086
+  for g in ${SLM_GROUP_ADD//,/ }; do
+    GROUP_ARGS+=(--group-add "${g}")
+  done
+fi
+
+docker run -d --name "${NAME}" --ipc=host \
+  --user "$(id -u):$(id -g)" \
+  "${GPU_ARGS[@]}" \
+  "${GROUP_ARGS[@]}" \
   -e SLM_MODEL="${MODEL}" -e SLM_PORT=8011 -e SLM_CTX_SIZE=8192 -e SLM_PARALLEL=4 \
   -e SLM_EXTRA_ARGS="${EXTRA_ARGS}" \
   $( [ -f secrets.env ] && echo --env-file secrets.env ) \

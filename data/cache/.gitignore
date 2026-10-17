@@ -1,0 +1,4 @@
+# HF download cache — tracked in git only to keep the directory itself;
+# contents stay local and user-owned (see scripts/run_server.sh --user).
+*
+!.gitignore

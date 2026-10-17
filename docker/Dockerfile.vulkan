@@ -4,10 +4,13 @@
 # llama.cpp (llama-server), Vulkan compute backend.
 #
 # Vulkan keeps the image free of any CUDA pinning: no toolkit, no driver
-# version coupling beyond what Vulkan ICDs on the host provide. On NVIDIA
-# hosts the driver's Vulkan producer must be reachable inside the container
-# (nvidia-container-toolkit with NVIDIA_DRIVER_CAPABILITIES including
-# "graphics", plus the host's nvidia_icd.json — see README).
+# version coupling. AMD hosts work out of the box: the runtime image ships
+# Mesa's RADV ICD (vulkan-radeon; pulls mesa + llvm-libs), which drives the
+# host amdgpu kernel driver through /dev/dri render nodes (stable kernel
+# ABI — unlike NVIDIA, whose userspace must never be baked in because it
+# would version-lock the image to the host driver; there NVIDIA userspace
+# is injected by nvidia-container-toolkit with NVIDIA_DRIVER_CAPABILITIES
+# including "graphics", plus the host's nvidia_icd.json — see README).
 
 FROM archlinux:base-devel AS build
 
@@ -31,7 +34,7 @@ FROM archlinux:base-devel AS runtime
 
 RUN pacman-key --init \
  && pacman -Syu --noconfirm python python-pip curl \
-      vulkan-icd-loader libglvnd libx11 libxext libxcb \
+      vulkan-icd-loader vulkan-radeon libglvnd libx11 libxext libxcb \
  && python -m venv /opt/venv \
  && /opt/venv/bin/pip install --no-cache-dir "openai>=1.60,<3" "pytest>=8"
 

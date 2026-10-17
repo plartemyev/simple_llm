@@ -1,0 +1,115 @@
+# Serve simple_llm with Docker Compose — an alternative to
+# scripts/run_server.sh (same images, same SLM_* configuration variables).
+#
+#   docker compose up -d cuda      # CUDA backend (simple_llm:cuda image)
+#   docker compose up -d vulkan-nvidia # Vulkan backend, NVIDIA host
+#   docker compose up -d vulkan-amd # Vulkan backend, AMD host (/dev/dri + in-image RADV)
+#   docker compose logs -f cuda
+#   docker compose down cuda       # teardown needs the service name (or
+#                                  # --profile): plain `down` is a no-op here
+#                                  # because every service has a profile
+#
+# Images are built automatically when missing, or ahead of time with
+# scripts/build_image.sh / docker compose build.
+#
+# Containers run as the invoking host user (SLM_UID / SLM_GID override the
+# 1000 defaults) so bind-mount writes under ./data stay user-owned.
+#
+# Configuration comes from the host environment; SLM_MODEL is required:
+#
+#   SLM_MODEL=ornith-ai/Ornith-1.5-9B-GGUF:Q8_0 docker compose up -d cuda
+#
+# or put SLM_MODEL=... into a .env file next to this compose.yaml (loaded
+# automatically for every docker compose subcommand — with the required-var
+# check above, even `down`/`logs` need the variable when set inline).
+# llama-server tuning env vars (README "MoE offload / tensor placement")
+# pass through from the host when set and apply to both backends:
+#
+#   LLAMA_ARG_CPU_MOE=1 docker compose up -d vulkan-nvidia
+#   LLAMA_ARG_OVERRIDE_TENSOR='exps=CPU' docker compose up -d cuda
+#
+# GPU-side -ot buffer names are backend-specific: CUDA0, CUDA1, ... under
+# CUDA; VULKAN0, VULKAN1, ... under Vulkan (exps=CPU is universal).
+
+x-env: &env
+  SLM_MODEL: ${SLM_MODEL:?set SLM_MODEL to an HF id (repo:quant) or a /models/*.gguf name}
+  SLM_CTX_SIZE: ${SLM_CTX_SIZE:-8192}
+  SLM_PARALLEL: ${SLM_PARALLEL:-4}
+  SLM_EXTRA_ARGS:
+  LLAMA_ARG_CPU_MOE:
+  LLAMA_ARG_N_CPU_MOE:
+  LLAMA_ARG_OVERRIDE_TENSOR:
+
+x-common: &common
+  restart: unless-stopped
+  ipc: host
+  user: "${SLM_UID:-1000}:${SLM_GID:-1000}"
+  ports:
+    - "127.0.0.1:${SLM_PORT:-8011}:8011"
+  volumes:
+    - ./data/models:/models
+    - ./data/cache:/data/cache
+  env_file:
+    - path: secrets.env
+      required: false # optional; HF_TOKEN=... for gated repos (git-ignored)
+
+services:
+  cuda:
+    <<: *common
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.cuda
+    image: simple_llm:cuda
+    profiles: [cuda]
+    environment:
+      <<: *env
+      CUDA_VISIBLE_DEVICES: ${SLM_GPU:-1}
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+
+  vulkan-nvidia:
+    <<: *common
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.vulkan
+    image: simple_llm:vulkan
+    profiles: [vulkan-nvidia]
+    environment:
+      <<: *env
+      NVIDIA_DRIVER_CAPABILITIES: compute,graphics,utility
+      GGML_VK_VISIBLE_DEVICES:
+    # If the host's NVIDIA ICD json is not picked up automatically, append it
+    # to volumes (see README "Vulkan"):
+    #   - /usr/share/vulkan/icd.d/nvidia_icd.json:/usr/share/vulkan/icd.d/nvidia_icd.json:ro
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+
+  # Same simple_llm:vulkan image (ships Mesa's RADV); wires /dev/dri render
+  # nodes instead of the NVIDIA toolkit. GPU selection via
+  # GGML_VK_VISIBLE_DEVICES (README "Vulkan").
+  vulkan-amd:
+    <<: *common
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.vulkan
+    image: simple_llm:vulkan
+    profiles: [vulkan-amd]
+    devices:
+      - /dev/dri:/dev/dri
+    # Hosts with group-restricted render nodes (e.g. 0660 root:render, common
+    # on Debian-family hosts) must give the container user the owning group:
+    # group_add:
+    #   - 992  # host gid: stat -c %g /dev/dri/renderD128
+    environment:
+      <<: *env
+      GGML_VK_VISIBLE_DEVICES:
