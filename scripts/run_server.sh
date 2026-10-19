@@ -14,9 +14,10 @@
 #   SLM_PARALLEL   concurrent slots       (default 4)
 #   SLM_KV_QUANT   KV cache type for K and V, e.g. q8_0 — enables flash
 #                  attention with it (container-side, docker/entrypoint.sh)
-#   SLM_MMPROJ     multimodal projector .gguf for vision models — file path or
-#                  name inside MODELS_DIR (container-side, docker/
-#                  entrypoint.sh); HF-id models pick theirs up automatically
+#   SLM_MMPROJ     vision (image-to-text): unset = text-only (--no-mmproj,
+#                  the default), "auto" = let an HF-id model download+load
+#                  its projector, or a projector file path/name inside
+#                  MODELS_DIR (container-side, docker/entrypoint.sh)
 #   SLM_GPU_DRIVER nvidia|amd             (default nvidia; amd passes /dev/dri
 #                                          and selects the Vulkan device via
 #                                          GGML_VK_VISIBLE_DEVICES, default 0)

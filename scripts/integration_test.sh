@@ -8,7 +8,8 @@
 #                              GGML_VK_VISIBLE_DEVICES instead of CUDA_VISIBLE_DEVICES)
 #   SLM_GROUP_ADD  supplementary host group ids (space/comma separated) for
 #                  group-restricted /dev/dri/renderD* nodes
-#   SLM_MMPROJ     forwarded when set: multimodal projector for vision models
+#   SLM_MMPROJ     forwarded when set: "auto" (HF projector download) or an
+#                  explicit projector file — enables the vision test
 set -euo pipefail
 cd "$(dirname "$0")/.."
 

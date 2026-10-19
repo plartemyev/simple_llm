@@ -239,20 +239,18 @@ e.g. via `secrets.env`; the host-side paths above change accordingly.
 
 ## Vision (image-to-text)
 
-`llama-server` runs vision-capable models with a multimodal projector
-(mmproj) loaded alongside the main GGUF. How it reaches the server depends
-on the model source:
+Vision is **opt-in** so text-only deployments never pay for it: by default
+the server runs with `--no-mmproj` — no projector is downloaded and no VRAM
+is reserved for one. `SLM_MMPROJ` (scripts and compose) enables it:
 
-| `SLM_MODEL` source | projector |
+| `SLM_MMPROJ` | behavior |
 |---|---|
-| HF id `owner/repo:QUANT` | nothing to set — llama-server detects the projector in the repo and downloads it with the model (`SLM_EXTRA_ARGS="--no-mmproj"` disables) |
-| local / bare `.gguf` name | `SLM_MMPROJ` (scripts and compose) — absolute path or a name inside `./data/models`, resolved like `SLM_MODEL` |
+| unset (default) | text-only — passes `--no-mmproj` |
+| `auto` | HF-id models: llama-server detects the projector in the repo and downloads it with the model (e.g. `mmproj-BF16.gguf`, ~0.8 GB for Qwen3-VL-4B); no-op for local `.gguf` files |
+| path or name in `./data/models` | explicit projector `.gguf`, resolved like `SLM_MODEL` — the way to serve vision from local files |
 
-Vision GGUF repos ship several projectors (`mmproj-F16.gguf`,
-`mmproj-BF16.gguf`, ...); with `-hf` llama-server picks the one closest to
-the requested quantization. `GET /props` reports
-`"modalities": {"vision": true}` once a projector is loaded — the
-integration suite skips its vision test without one.
+`GET /props` reports `"modalities": {"vision": true}` once a projector is
+loaded — the integration suite skips its vision test without one.
 
 Requests use the OpenAI multimodal content format (images as base64 data
 URLs — llama-server does not fetch remote `http(s)://` images):
@@ -266,7 +264,7 @@ curl -s http://127.0.0.1:8011/v1/chat/completions \
         {\"type\":\"image_url\",\"image_url\":{\"url\":\"data:image/png;base64,$IMG\"}}]}]}"
 ```
 
-Projector weights add VRAM on top of the main model (a F16 projector is
+Projector weights add VRAM on top of the main model (a F16/BF16 projector is
 typically 0.5–1.5 GB) — account for it when sizing the quant against the
 card.
 
@@ -290,7 +288,7 @@ by the image entrypoint / llama-server directly.
 | `SLM_MODELS_DIR` / `SLM_CACHE_DIR` | scripts | `./data/models` / `./data/cache` | bind-mount sources |
 | `SLM_EXTRA_ARGS` | scripts, compose | — | extra llama-server flags, word-split; overrides `LLAMA_ARG_*` env vars |
 | `SLM_KV_QUANT` | scripts, compose | — | K/V cache type (e.g. `q8_0`), enables flash attention — see [KV cache quantization](#kv-cache-quantization) |
-| `SLM_MMPROJ` | scripts, compose | — | multimodal projector `.gguf` for locally served vision models — see [Vision (image-to-text)](#vision-image-to-text) |
+| `SLM_MMPROJ` | scripts, compose | — | vision control: `auto` (HF repos download+load their projector), a projector path/name, unset = text-only — see [Vision (image-to-text)](#vision-image-to-text) |
 | `SLM_UID` / `SLM_GID` | compose | `1000` | container uid:gid, keeps `./data` host-user-owned |
 | `SLM_GROUP_ADD` | scripts | — | supplementary host group ids (space/comma separated) for group-restricted `/dev/dri/renderD*` nodes; compose: `group_add` |
 | `LLAMA_ARG_CPU_MOE`, `LLAMA_ARG_N_CPU_MOE`, `LLAMA_ARG_OVERRIDE_TENSOR` | both (passthrough) | — | MoE / tensor-placement tuning — see [MoE offload](#moe-offload--tensor-placement) |
@@ -494,6 +492,7 @@ repo on purpose); the schema is documented in `benchmarks/README.md`.
 uv run --extra test python -m pytest tests/ -m "not integration"   # unit, any host
 scripts/integration_test.sh ornith-ai/Ornith-1.5-9B-GGUF:Q8_0 -g 1  # full stack on a GPU host
 # AMD host: SLM_GPU_DRIVER=amd scripts/integration_test.sh MODEL -b vulkan
+# vision model + vision test: SLM_MMPROJ=auto (see "Vision (image-to-text)")
 ```
 
 ## License

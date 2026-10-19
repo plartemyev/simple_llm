@@ -5,11 +5,16 @@
 #   SLM_MODEL       "repo:quant" HF id (downloaded and cached on first start)
 #                   or an absolute path to a .gguf file inside the container
 #                   (mount it under /models).
-#   SLM_MMPROJ      multimodal projector .gguf for vision models, resolved like
-#                   SLM_MODEL (absolute path or bare name under /models);
-#                   unneeded for HF ids — llama-server downloads the mmproj
-#                   automatically when the repo ships one (disable with
-#                   SLM_EXTRA_ARGS="--no-mmproj").
+#   SLM_MMPROJ      vision (image-to-text) control, three modes:
+#                     unset (default)  text-only — passes --no-mmproj: a
+#                                      projector is never downloaded or loaded
+#                     "auto"           llama-server default (--mmproj-auto):
+#                                      for HF ids the repo's projector is
+#                                      downloaded and loaded; no-op for local
+#                                      .gguf files
+#                     path or name     explicit projector .gguf, resolved like
+#                                      SLM_MODEL (absolute path or a name
+#                                      under /models)
 #   SLM_HOST        bind address            (default 0.0.0.0)
 #   SLM_PORT        port                    (default 8011)
 #   SLM_CTX_SIZE    context size, tokens    (default 8192)
@@ -61,14 +66,21 @@ else
 fi
 
 if [ -n "${SLM_MMPROJ:-}" ]; then
-  if [ -f "${SLM_MMPROJ}" ]; then
+  if [ "${SLM_MMPROJ}" = auto ]; then
+    # llama-server's --mmproj-auto default: for -hf models the projector is
+    # discovered in the repo and downloaded; local .gguf files are unaffected
+    :
+  elif [ -f "${SLM_MMPROJ}" ]; then
     args+=(--mmproj "${SLM_MMPROJ}")
   elif [ -f "/models/${SLM_MMPROJ}" ]; then
     args+=(--mmproj "/models/${SLM_MMPROJ}")
   else
-    echo "ERROR: SLM_MMPROJ='${SLM_MMPROJ}': no such file (absolute path or a name under /models)" >&2
+    echo "ERROR: SLM_MMPROJ='${SLM_MMPROJ}': no such file (auto, absolute path, or a name under /models)" >&2
     exit 1
   fi
+else
+  # text-only default: never download or load a multimodal projector
+  args+=(--no-mmproj)
 fi
 
 # shellcheck disable=SC2086
