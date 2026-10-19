@@ -54,7 +54,10 @@ x-common: &common
     - ./data/cache:/data/cache
   env_file:
     - path: secrets.env
-      required: false # optional; HF_TOKEN=... for gated repos (git-ignored)
+      required: false # optional; git-ignored; forwarded wholesale into the
+                      # container — HF_TOKEN for gated repos, plus anything
+                      # else this environment block does not declare (e.g.
+                      # other LLAMA_ARG_* tuning vars)
 
 services:
   cuda:

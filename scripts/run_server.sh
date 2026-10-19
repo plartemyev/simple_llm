@@ -31,7 +31,9 @@
 #   LLAMA_ARG_OVERRIDE_TENSOR=...  (-ot: comma-separated tensor=buffer overrides,
 #                                   e.g. "exps=CPU" or "blk\.(0|1)\.ffn_.*=CUDA1")
 #
-# Put HF_TOKEN=... into ./secrets.env (git-ignored) to download gated repos.
+# ./secrets.env (git-ignored) is forwarded wholesale via --env-file:
+# HF_TOKEN=... downloads gated repos; any other variable in it (e.g.
+# LLAMA_ARG_* not listed above) reaches llama-server in the container as-is.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 

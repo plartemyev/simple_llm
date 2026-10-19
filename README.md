@@ -67,8 +67,9 @@ docker compose down cuda       # teardown needs the service name: every
 ```
 
 The same environment variables configure it (see [Configuration](#configuration));
-`secrets.env` (e.g. `HF_TOKEN`) is loaded when present, and variables can
-also live in a `.env` file next to `compose.yaml` (auto-loaded, git-ignored).
+variables can also live in a `.env` file next to `compose.yaml` (auto-loaded,
+git-ignored). `secrets.env` is loaded when present and forwarded wholesale
+into the container — see [Configuration](#configuration).
 
 ## Configuration
 
@@ -94,6 +95,13 @@ by the image entrypoint / llama-server directly.
 | `SLM_GROUP_ADD` | scripts | — | supplementary host group ids (space/comma separated) for group-restricted `/dev/dri/renderD*` nodes; compose: `group_add` |
 | `LLAMA_ARG_CPU_MOE`, `LLAMA_ARG_N_CPU_MOE`, `LLAMA_ARG_OVERRIDE_TENSOR` | both (passthrough) | — | MoE / tensor-placement tuning — see [MoE offload](#moe-offload--tensor-placement) |
 | `HF_TOKEN` | both | — | token for gated HF repos (`secrets.env` or environment) |
+
+`secrets.env` (git-ignored) is loaded when present and forwarded wholesale
+(`--env-file` / compose `env_file`): everything in it reaches the container.
+Beyond `HF_TOKEN` this makes it the place for tuning variables the helpers
+do not declare — e.g. any native `LLAMA_ARG_*` (non-empty values only). The
+host environment itself reaches the container only through the variables
+listed above (compose: only the keys declared in `compose.yaml`).
 
 Container-only (not forwarded by the helpers): `SLM_HOST`, `SLM_GPU_LAYERS`.
 Image build args (`CUDA_ARCH`, `CUDA_PKG_URL`, `LLAMA_CPP_REF`) are
@@ -174,7 +182,10 @@ GPU-side overrides must name the backend's buffers — `CUDA0`, `CUDA1`, ...
 on CUDA builds, `VULKAN0`, `VULKAN1`, ... on Vulkan builds. Offloading
 expert weights to CPU trades throughput for VRAM; useful when a MoE model's
 dense layers fit on the GPU but its expert tensors do not. Set vars only to
-non-empty values (an empty `LLAMA_ARG_N_CPU_MOE` fails to parse).
+non-empty values (an empty `LLAMA_ARG_N_CPU_MOE` fails to parse). Only the
+three vars above are declared in the helpers; any other `LLAMA_ARG_*`
+reaches the container through `secrets.env` (forwarded wholesale — see
+[Configuration](#configuration)).
 
 ### KV cache quantization
 
