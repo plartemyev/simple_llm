@@ -54,6 +54,15 @@
   parser, small `max_tokens` yields empty `content` (text goes to
   `reasoning_content`); budget tokens for the thinking or pass
   `SLM_EXTRA_ARGS="--reasoning off"` like integration_test.sh does.
+- The integration suite runs pytest INSIDE the container against the code
+  baked in at build time (`COPY . /app`) — after changing `tests/`,
+  `simple_llm/client/` or any other in-image code, rebuild the image
+  (`scripts/build_image.sh <backend>`; cached llama.cpp layers make it
+  fast) or the suite silently runs the stale copy.
+- Vision (mmproj): with `-hf`, llama.cpp v0.6.0 auto-selects the projector
+  via `find_best_sibling` — closest quant to the tag, first file wins ties;
+  for unsloth Qwen3-VL repos that is `mmproj-BF16.gguf` (Q4_K_M tag →
+  16-bit tie BF16/F16), and only that file is downloaded.
 - For long-running commands (e.g. `docker compose up --build`), detach with `setsid ... </dev/null >path/.tmp/run.log 2>&1 & disown` and poll the log in separate tool calls; do not pipe through `tail` (it buffers until EOF, so a hanging build shows no output and times out the tool).
 - When investigating network/services unavailability use `nc -zvw 1 TARGET TARGET_PORT`, `curl -vkL TARGET >/dev/null`, `mtr --json --aslookup --mpls --timeout 30 TARGET`;
 - `nc -zuvw2 host port` "succeeding" proves nothing for UDP: a UDP `connect()` never fails on a remote host, so it reports success even when every packet is silently dropped. Verify UDP reachability with a server-side `tcpdump -ni <wan_if> udp port <port>` while generating traffic, or `mtr --udp`;

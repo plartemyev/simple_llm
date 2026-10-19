@@ -5,6 +5,11 @@
 #   SLM_MODEL       "repo:quant" HF id (downloaded and cached on first start)
 #                   or an absolute path to a .gguf file inside the container
 #                   (mount it under /models).
+#   SLM_MMPROJ      multimodal projector .gguf for vision models, resolved like
+#                   SLM_MODEL (absolute path or bare name under /models);
+#                   unneeded for HF ids — llama-server downloads the mmproj
+#                   automatically when the repo ships one (disable with
+#                   SLM_EXTRA_ARGS="--no-mmproj").
 #   SLM_HOST        bind address            (default 0.0.0.0)
 #   SLM_PORT        port                    (default 8011)
 #   SLM_CTX_SIZE    context size, tokens    (default 8192)
@@ -53,6 +58,17 @@ elif [ -f "/models/${MODEL}" ]; then
   args+=(-m "/models/${MODEL}")
 else
   args+=(-hf "${MODEL}")
+fi
+
+if [ -n "${SLM_MMPROJ:-}" ]; then
+  if [ -f "${SLM_MMPROJ}" ]; then
+    args+=(--mmproj "${SLM_MMPROJ}")
+  elif [ -f "/models/${SLM_MMPROJ}" ]; then
+    args+=(--mmproj "/models/${SLM_MMPROJ}")
+  else
+    echo "ERROR: SLM_MMPROJ='${SLM_MMPROJ}': no such file (absolute path or a name under /models)" >&2
+    exit 1
+  fi
 fi
 
 # shellcheck disable=SC2086

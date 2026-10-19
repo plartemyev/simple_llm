@@ -8,6 +8,7 @@
 #                              GGML_VK_VISIBLE_DEVICES instead of CUDA_VISIBLE_DEVICES)
 #   SLM_GROUP_ADD  supplementary host group ids (space/comma separated) for
 #                  group-restricted /dev/dri/renderD* nodes
+#   SLM_MMPROJ     forwarded when set: multimodal projector for vision models
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
@@ -60,6 +61,7 @@ docker run -d --name "${NAME}" --ipc=host \
   -e SLM_MODEL="${MODEL}" -e SLM_PORT=8011 -e SLM_CTX_SIZE=8192 -e SLM_PARALLEL=4 \
   -e SLM_EXTRA_ARGS="${EXTRA_ARGS}" \
   $( [ -f secrets.env ] && echo --env-file secrets.env ) \
+  $( [ -n "${SLM_MMPROJ:-}" ] && echo "-e SLM_MMPROJ=${SLM_MMPROJ}" ) \
   -v "${MODELS_DIR}":/models -v "${CACHE_DIR}":/data/cache \
   -p "127.0.0.1:${PORT}:8011" \
   "${IMAGE}" >/dev/null

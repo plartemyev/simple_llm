@@ -237,6 +237,39 @@ To relocate the cache root inside the container (`.cache/huggingface/hub`
 under `$HOME` is llama.cpp's default), set `LLAMA_CACHE=/data/cache/hf` —
 e.g. via `secrets.env`; the host-side paths above change accordingly.
 
+## Vision (image-to-text)
+
+`llama-server` runs vision-capable models with a multimodal projector
+(mmproj) loaded alongside the main GGUF. How it reaches the server depends
+on the model source:
+
+| `SLM_MODEL` source | projector |
+|---|---|
+| HF id `owner/repo:QUANT` | nothing to set — llama-server detects the projector in the repo and downloads it with the model (`SLM_EXTRA_ARGS="--no-mmproj"` disables) |
+| local / bare `.gguf` name | `SLM_MMPROJ` (scripts and compose) — absolute path or a name inside `./data/models`, resolved like `SLM_MODEL` |
+
+Vision GGUF repos ship several projectors (`mmproj-F16.gguf`,
+`mmproj-BF16.gguf`, ...); with `-hf` llama-server picks the one closest to
+the requested quantization. `GET /props` reports
+`"modalities": {"vision": true}` once a projector is loaded — the
+integration suite skips its vision test without one.
+
+Requests use the OpenAI multimodal content format (images as base64 data
+URLs — llama-server does not fetch remote `http(s)://` images):
+
+```shell
+IMG=$(base64 -w0 image.png)
+curl -s http://127.0.0.1:8011/v1/chat/completions \
+  -H 'Content-Type: application/json' \
+  -d "{\"model\":\"<model id>\",\"messages\":[{\"role\":\"user\",\"content\":[
+        {\"type\":\"text\",\"text\":\"Describe this image.\"},
+        {\"type\":\"image_url\",\"image_url\":{\"url\":\"data:image/png;base64,$IMG\"}}]}]}"
+```
+
+Projector weights add VRAM on top of the main model (a F16 projector is
+typically 0.5–1.5 GB) — account for it when sizing the quant against the
+card.
+
 ## Configuration
 
 Environment variables select the backend, size the server, and tune
@@ -257,6 +290,7 @@ by the image entrypoint / llama-server directly.
 | `SLM_MODELS_DIR` / `SLM_CACHE_DIR` | scripts | `./data/models` / `./data/cache` | bind-mount sources |
 | `SLM_EXTRA_ARGS` | scripts, compose | — | extra llama-server flags, word-split; overrides `LLAMA_ARG_*` env vars |
 | `SLM_KV_QUANT` | scripts, compose | — | K/V cache type (e.g. `q8_0`), enables flash attention — see [KV cache quantization](#kv-cache-quantization) |
+| `SLM_MMPROJ` | scripts, compose | — | multimodal projector `.gguf` for locally served vision models — see [Vision (image-to-text)](#vision-image-to-text) |
 | `SLM_UID` / `SLM_GID` | compose | `1000` | container uid:gid, keeps `./data` host-user-owned |
 | `SLM_GROUP_ADD` | scripts | — | supplementary host group ids (space/comma separated) for group-restricted `/dev/dri/renderD*` nodes; compose: `group_add` |
 | `LLAMA_ARG_CPU_MOE`, `LLAMA_ARG_N_CPU_MOE`, `LLAMA_ARG_OVERRIDE_TENSOR` | both (passthrough) | — | MoE / tensor-placement tuning — see [MoE offload](#moe-offload--tensor-placement) |
