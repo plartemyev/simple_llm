@@ -79,7 +79,7 @@ by the image entrypoint / llama-server directly.
 
 | variable | used by | default | purpose |
 |---|---|---|---|
-| `SLM_MODEL` | scripts, compose | — (required) | HF id `owner/repo:QUANT` or a `.gguf` name inside `./data/models` |
+| `SLM_MODEL` | scripts, compose | — (required) | HF id `owner/repo:QUANT` or a `.gguf` name inside `./data/models`; `QUANT` is any quantization the repo ships (see [Models](#models)) |
 | `SLM_BACKEND` | scripts | `cuda` | image backend: `cuda` or `vulkan` |
 | `SLM_IMAGE` | scripts, compose | `simple_llm:$SLM_BACKEND` | image tag override |
 | `SLM_GPU` | scripts, compose | `1` | GPU index — CUDA: `CUDA_VISIBLE_DEVICES`; with `SLM_GPU_DRIVER=amd`: overrides the Vulkan device (which defaults to 0) |
@@ -89,6 +89,7 @@ by the image entrypoint / llama-server directly.
 | `SLM_PARALLEL` | scripts, compose | `4` | concurrent slots |
 | `SLM_MODELS_DIR` / `SLM_CACHE_DIR` | scripts | `./data/models` / `./data/cache` | bind-mount sources |
 | `SLM_EXTRA_ARGS` | scripts, compose | — | extra llama-server flags, word-split; overrides `LLAMA_ARG_*` env vars |
+| `SLM_KV_QUANT` | scripts, compose | — | K/V cache type (e.g. `q8_0`), enables flash attention — see [KV cache quantization](#kv-cache-quantization) |
 | `SLM_UID` / `SLM_GID` | compose | `1000` | container uid:gid, keeps `./data` host-user-owned |
 | `SLM_GROUP_ADD` | scripts | — | supplementary host group ids (space/comma separated) for group-restricted `/dev/dri/renderD*` nodes; compose: `group_add` |
 | `LLAMA_ARG_CPU_MOE`, `LLAMA_ARG_N_CPU_MOE`, `LLAMA_ARG_OVERRIDE_TENSOR` | both (passthrough) | — | MoE / tensor-placement tuning — see [MoE offload](#moe-offload--tensor-placement) |
@@ -175,6 +176,15 @@ expert weights to CPU trades throughput for VRAM; useful when a MoE model's
 dense layers fit on the GPU but its expert tensors do not. Set vars only to
 non-empty values (an empty `LLAMA_ARG_N_CPU_MOE` fails to parse).
 
+### KV cache quantization
+
+`SLM_KV_QUANT=q8_0` (scripts and compose) stores the K and V caches in the
+given GGUF type and turns flash attention on with it (quantized V cache
+requires FA) — it expands to `--flash-attn on --cache-type-k q8_0
+--cache-type-v q8_0`. Allowed types (default `f16`): `f32 f16 bf16 q8_0
+q4_0 q4_1 iq4_nl q5_0 q5_1`; `q8_0` halves KV VRAM vs `f16`. Flash
+attention alone (cache stays `f16`): `SLM_EXTRA_ARGS="--flash-attn on"`.
+
 ## Call profiles
 
 Two workload shapes cover the typical latency-sensitive text transformation
@@ -199,7 +209,7 @@ Context sizing: llama-server divides `-c` across `--parallel` slots. Per-call bu
 ~412 tokens + 128 output → **2048 tokens per slot ≈ 2× worst case, the practical minimum**. Set
 `-c = slots × 2048`. Context VRAM cost is small at this scale (measured on a 9B Q8_0: 8192×4 vs
 2048×1 differs by only ~0.35 GiB — weights dominate); revisit only if prompts grow (few-shot
-examples) or per-slot context exceeds ~8k (then consider `--cache-type-k q8_0 --cache-type-v q8_0`).
+examples) or per-slot context exceeds ~8k (then consider `SLM_KV_QUANT=q8_0`).
 
 The thin client codifies both profiles:
 
@@ -241,6 +251,13 @@ or mirror-available licenses.
 
 `ornith-ai/Ornith-1.5-9B-GGUF` was evaluated and dropped as a clear outsider
 (see the parent benchmark report).
+
+Any quantization a GGUF repo ships can be served: pass it as the `SLM_MODEL`
+suffix — `:Q4_K_M`, `:UD-Q4_K_XL`, `:Q3_K_XL` (case-insensitive). Without a
+suffix llama-server defaults to `Q4_K_M` and falls back to the first `.gguf`
+in the repo. The benchmark candidate list pairs 27B+ models with 4/3-bit
+quants that fit a single 24 GB card; combine with MoE offload and
+`SLM_KV_QUANT` when VRAM is still tight.
 
 ## Benchmarks
 

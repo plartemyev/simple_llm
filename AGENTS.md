@@ -95,6 +95,12 @@ For multistep tasks, state a brief plan:
   non-empty: `run_server.sh` skips empties explicitly; compose.yaml relies on
   null-passthrough (`VAR:`), which sets the var in the container only when
   the host var is set — never write `${VAR:-}` defaults for these.
+- llama.cpp v0.6.0 flash-attn / KV cache: `-fa/--flash-attn` takes an
+  optional `on|off|auto` (default `auto`; native env
+  `LLAMA_ARG_FLASH_ATTN`), `-ctk/-ctv` = `LLAMA_ARG_CACHE_TYPE_K/V`
+  (allowed: f32 f16 bf16 q8_0 q4_0 q4_1 iq4_nl q5_0 q5_1). Quantized V
+  cache requires FA on — `SLM_KV_QUANT` wraps the exact trio
+  (`--flash-attn on -ctk/-ctv <type>`) in `docker/entrypoint.sh`.
 - Compose 5.x: profiled services resolve via `docker compose config <service>`
   (positional); `--profile` flag no longer exists on `config`. Same for
   `down`/`stop`: with every service under a profile, plain `docker compose

@@ -10,6 +10,9 @@
 #   SLM_CTX_SIZE    context size, tokens    (default 8192)
 #   SLM_PARALLEL    concurrent slots        (default 4)
 #   SLM_GPU_LAYERS  layers offloaded to GPU (default 999 = all)
+#   SLM_KV_QUANT    KV cache type for K and V, e.g. q8_0 (default f16);
+#                   enables flash attention along with it (quantized V
+#                   cache requires FA)
 #   SLM_EXTRA_ARGS  extra llama-server flags, word-split
 #   HF_TOKEN        optional; required only for gated HF repositories
 #
@@ -34,6 +37,15 @@ args=(
   --n-gpu-layers "${NGL}"
   --jinja
 )
+
+if [ -n "${SLM_KV_QUANT:-}" ]; then
+  # quantized KV cache: -fa on -ctk/-ctv <type> (V quantization needs FA)
+  args+=(
+    --flash-attn on
+    --cache-type-k "${SLM_KV_QUANT}"
+    --cache-type-v "${SLM_KV_QUANT}"
+  )
+fi
 
 if [ -f "${MODEL}" ]; then
   args+=(-m "${MODEL}")

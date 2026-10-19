@@ -22,11 +22,13 @@
 # or put SLM_MODEL=... into a .env file next to this compose.yaml (loaded
 # automatically for every docker compose subcommand — with the required-var
 # check above, even `down`/`logs` need the variable when set inline).
-# llama-server tuning env vars (README "MoE offload / tensor placement")
-# pass through from the host when set and apply to both backends:
+# llama-server tuning env vars (README "MoE offload / tensor placement",
+# "KV cache quantization") pass through from the host when set and apply to
+# both backends:
 #
 #   LLAMA_ARG_CPU_MOE=1 docker compose up -d vulkan-nvidia
 #   LLAMA_ARG_OVERRIDE_TENSOR='exps=CPU' docker compose up -d cuda
+#   SLM_KV_QUANT=q8_0 docker compose up -d cuda   # quantized KV (-fa on -ctk/-ctv q8_0)
 #
 # GPU-side -ot buffer names are backend-specific: CUDA0, CUDA1, ... under
 # CUDA; VULKAN0, VULKAN1, ... under Vulkan (exps=CPU is universal).
@@ -35,6 +37,7 @@ x-env: &env
   SLM_MODEL: ${SLM_MODEL:?set SLM_MODEL to an HF id (repo:quant) or a /models/*.gguf name}
   SLM_CTX_SIZE: ${SLM_CTX_SIZE:-8192}
   SLM_PARALLEL: ${SLM_PARALLEL:-4}
+  SLM_KV_QUANT:
   SLM_EXTRA_ARGS:
   LLAMA_ARG_CPU_MOE:
   LLAMA_ARG_N_CPU_MOE:
