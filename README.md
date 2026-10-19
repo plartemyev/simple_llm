@@ -47,7 +47,11 @@ curl -s http://127.0.0.1:8011/v1/chat/completions \
 ```
 
 The first start downloads the model into `./data/cache` (mounted at
-`/data/cache`); subsequent starts are instant. The directory is tracked in
+`/data/cache`); subsequent starts are instant — but an HF id still
+re-resolves the repo on `huggingface.co` at every start. For restarts that
+never touch the network, serve the cached file directly — see
+[Model cache and offline runs](#model-cache-and-offline-runs). The directory
+is tracked in
 git through its inner `.gitignore` (contents stay local); the container
 runs as the invoking user (compose: `SLM_UID`/`SLM_GID`, default 1000), so
 downloads remain host-user-owned.
@@ -70,6 +74,72 @@ The same environment variables configure it (see [Configuration](#configuration)
 variables can also live in a `.env` file next to `compose.yaml` (auto-loaded,
 git-ignored). `secrets.env` is loaded when present and forwarded wholesale
 into the container — see [Configuration](#configuration).
+
+## Model cache and offline runs
+
+`docker/entrypoint.sh` picks the model source from the shape of `SLM_MODEL`:
+
+| `SLM_MODEL` value | flag | outbound traffic |
+|---|---|---|
+| HF id `owner/repo:QUANT` | `-hf` | every start resolves the repo on `huggingface.co` (commit + file list) and downloads whatever is missing from the cache |
+| path to an existing `.gguf` | `-m` | none |
+| bare `.gguf` name (resolved under `/models`) | `-m` | none |
+
+In all modes prompts and completions stay on the host (the service is
+published on `127.0.0.1` only); the table is only about HF weight traffic.
+
+### First run (online)
+
+Any HF-id start populates the cache under
+`data/cache/.cache/huggingface/hub/` (the container's `HOME=/data/cache` is
+bind-mounted from `./data/cache`; llama.cpp's hub-cache layout:
+`models--<owner>--<repo>/{refs/main,blobs/,snapshots/<commit>/}`):
+
+```shell
+scripts/run_server.sh ornith-ai/Ornith-1.5-9B-GGUF:Q8_0 -g 1
+# first start: resolve + download happens before the load_model: log line
+```
+
+The resolved commit is recorded in `refs/main`, so the cache knows exactly
+which snapshot it holds (gated repos: `HF_TOKEN` as in the Quick start).
+Restarting with the same HF id reuses the blobs but still makes the two
+resolution requests per start — production should serve from the cache
+directly:
+
+### Production runs (no HF traffic)
+
+Any of the following makes restarts fully offline:
+
+- **Copy into `data/models`** (recommended — self-contained, survives cache
+  cleanup), then serve the bare file name:
+
+  ```shell
+  GGUF=$(ls data/cache/.cache/huggingface/hub/models--ornith-ai--Ornith-1.5-9B-GGUF/snapshots/*/Ornith*Q8_0.gguf)
+  cp "$GGUF" data/models/ornith-1.5-9b-q8_0.gguf   # or ln (same filesystem)
+  scripts/run_server.sh ornith-1.5-9b-q8_0.gguf -g 1
+  # compose: SLM_MODEL=ornith-1.5-9b-q8_0.gguf docker compose up -d cuda
+  ```
+
+- **Point at the cached snapshot** (no copy, pins the exact commit): pass the
+  container path
+  `/data/cache/.cache/huggingface/hub/models--<owner>--<repo>/snapshots/<commit>/<file>.gguf`
+  as `SLM_MODEL`. The cache volume persists, so the pointer is stable across
+  restarts — just not across manual cache pruning.
+
+- **Keep the HF id, add `--offline`**: resolution happens from the local
+  cache only (`refs/main` → `snapshots/<commit>`); zero requests, and a
+  missing cache fails fast instead of downloading. The `:QUANT` suffix still
+  selects among the cached files. Least pinned: serves whatever commit was
+  current at the last online run.
+
+  ```shell
+  scripts/run_server.sh ornith-ai/Ornith-1.5-9B-GGUF:Q8_0 -g 1 -- --offline
+  # compose: SLM_EXTRA_ARGS=--offline (environment or .env)
+  ```
+
+To relocate the cache root inside the container (`.cache/huggingface/hub`
+under `$HOME` is llama.cpp's default), set `LLAMA_CACHE=/data/cache/hf` —
+e.g. via `secrets.env`; the host-side paths above change accordingly.
 
 ## Configuration
 
