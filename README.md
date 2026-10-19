@@ -75,6 +75,102 @@ variables can also live in a `.env` file next to `compose.yaml` (auto-loaded,
 git-ignored). `secrets.env` is loaded when present and forwarded wholesale
 into the container — see [Configuration](#configuration).
 
+## Home-lab quick start: large MoE on a small AMD GPU
+
+The recipe reproduces the reference deployment of this repo: a 35B-total /
+3B-active MoE (`unsloth/Qwen3.6-35B-A3B-GGUF`, 4-bit) served on a Ryzen + RX
+Vega 8 GB host — expert weights in system RAM (`--n-cpu-moe 999`), dense
+weights plus a 4-bit-quantized KV cache for a 65536-token context on the GPU,
+fully offline serving through docker compose. Any AMD GPU works (the image
+ships Mesa's RADV; host only needs the amdgpu kernel stack).
+
+1. **Size the quant against RAM, not VRAM.** With all experts on CPU, the GPU
+   holds only the dense part (a few GB at 4-bit) plus the KV cache (with
+   `q4_0` at 64K ctx, ~2 GB); the experts — most of the file — live in system
+   RAM. Check `free -h` and the repo's file sizes (the HF "Files" tab), pick
+   the largest 4-bit file that fits available RAM minus a couple GB. A 64 GB
+   RAM host comfortably takes `UD-Q4_K_XL` (20.8 GB file).
+
+2. **Download into the shared hub cache** (any host with `uv`; the hf-xet
+   bridge hangs behind some proxies, the env var falls back to the plain
+   CDN):
+
+   ```shell
+   export HF_HOME=$PWD/data/cache/.cache/huggingface HF_HUB_DISABLE_XET=1
+   uvx --from huggingface_hub hf download \
+     unsloth/Qwen3.6-35B-A3B-GGUF Qwen3.6-35B-A3B-UD-Q4_K_XL.gguf
+   ```
+
+3. **Hardlink into `data/models`** (zero-copy, and the offline serving layout
+   from [Model cache and offline runs](#model-cache-and-offline-runs)). Name
+   the link explicitly: the snapshot entry is a symlink into `blobs/<sha>`, so
+   `ln` into a directory alone would leave the link named by blob hash.
+
+   ```shell
+   ln "$(readlink -f data/cache/.cache/huggingface/hub/models--unsloth--Qwen3.6-35B-A3B-GGUF/snapshots/*/Qwen3.6-35B-A3B-UD-Q4_K_XL.gguf)" \
+      data/models/Qwen3.6-35B-A3B-UD-Q4_K_XL.gguf
+   ```
+
+4. **Configure `.env`** next to `compose.yaml` (git-ignored). Values are not
+   shell-expanded by compose — generate the API key first, then write the
+   literal line:
+
+   ```shell
+   cat > .env <<EOF
+   SLM_MODEL=Qwen3.6-35B-A3B-UD-Q4_K_XL.gguf   # bare name -> offline -m serving
+   SLM_CTX_SIZE=65536
+   SLM_PARALLEL=4
+   SLM_KV_QUANT=q4_0                           # 4-bit KV; enables flash attention
+   LLAMA_ARG_N_CPU_MOE=999                     # all expert weights on CPU
+   EOF
+   echo "SLM_EXTRA_ARGS=--api-key sk-$(openssl rand -hex 24) --offline" >> .env
+   chmod 600 .env
+   ```
+
+   Together with the entrypoint's default `--n-gpu-layers 999`, the pair
+   `999` + `--n-cpu-moe 999` means "everything on the GPU except experts".
+
+5. **Launch** (first run builds `simple_llm:vulkan`; then the container
+   restarts on failure and at boot until stopped — `restart: unless-stopped`):
+
+   ```shell
+   docker compose up -d vulkan-amd
+   docker compose logs -f vulkan-amd
+   ```
+
+   Debian-family hosts with `0660` render nodes need the owning group added
+   to the container — see [Vulkan](#gpu-backend-notes).
+
+6. **Expose to the LAN (optional)** with a local override. `ports:` lists are
+   *appended* across compose files, so the base loopback bind must be
+   replaced with the `!override` tag, not appended to:
+
+   ```yaml
+   # compose.override.yaml (add to .gitignore; compose loads it automatically)
+   services:
+     vulkan-amd:
+       ports: !override
+         - "${SLM_PORT:-8011}:8011"
+   ```
+
+   Recreate once more: `docker compose up -d vulkan-amd`.
+
+7. **Verify** (from the server's localhost, or the LAN with step 6):
+
+   ```shell
+   curl -s http://127.0.0.1:8011/health        # {"status":"ok"} — probes stay open
+   curl -s http://127.0.0.1:8011/v1/models \
+     -H "Authorization: Bearer $(grep SLM_EXTRA_ARGS .env | awk '{print $2}')"   # 200
+   ```
+
+   Chat requests are the same shape as in the [Quick start](#quick-start)
+   curl, plus the bearer header. First request after a start pays a Vulkan
+   shader-compile warmup. Reasoning models think by default: budget
+   `max_tokens` (~800) or send
+   `"chat_template_kwargs": {"enable_thinking": false}`. Swap models by
+   pointing `SLM_MODEL` at another file in `data/models` (e.g.
+   `GLM-4.7-Flash-UD-Q4_K_XL.gguf`) and re-running step 5.
+
 ## Model cache and offline runs
 
 `docker/entrypoint.sh` picks the model source from the shape of `SLM_MODEL`:

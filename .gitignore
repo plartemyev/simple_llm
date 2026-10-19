@@ -16,3 +16,7 @@ results/
 *.gguf
 *.log
 .tmp/
+
+# local (untracked) deployment override
+compose.override.yaml
+
