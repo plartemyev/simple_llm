@@ -20,3 +20,4 @@ results/
 # local (untracked) deployment override
 compose.override.yaml
 
+tmp/
