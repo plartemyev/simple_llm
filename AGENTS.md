@@ -34,10 +34,10 @@
   the GPU). Docker's default memlock ulimit (8 MiB) must be raised first:
   compose `ulimits: memlock: -1`. `--n-cpu-moe N` with N ≥ layer count is
   just "all layers" (Qwen3.6-35B-A3B: block_count 40 → 48 ≡ 999). Deployed
-  on this host (8 GB Vega): `-ot` first-4 pinning
-  (`LLAMA_ARG_OVERRIDE_TENSOR=blk.[0-3].ffn_.*_exps=Vulkan0,exps=CPU`,
-  ~1.39 GiB free) → gen 20.0-20.2 vs 18.6 tok/s, pp 203-208 vs 190 tok/s;
-  ≈ +0.3 tok/s gen (+4 pp) per moved layer (~0.46 GB VRAM each). Which
+  on this host (8 GB Vega): `-ot` first-5 pinning
+  (`LLAMA_ARG_OVERRIDE_TENSOR=blk.[0-4].ffn_.*_exps=Vulkan0,exps=CPU`,
+  0.93 GiB free) → gen 20.7 vs 18.6 tok/s, pp 215 vs 190 tok/s;
+  ≈ +0.4 tok/s gen (+5 pp) per moved layer (~0.46 GB VRAM each). Which
   layers to pin is a wash — every token routes through all layers (8/256
   experts each) and mlock keeps all pages resident; measured first-4 ≡
   last-4 within noise. v0.7.0 `-ot` GPU buffer name on Vulkan is
@@ -99,11 +99,19 @@
 - LANDED in llama.cpp v0.7.0 (was: RFC #28248 / issue #20757): GPU cache
   for MoE experts kept in host memory — `--moe-cache-mib N` (MiB; LRU,
   shared across GPUs via #30112, up to ~2.2x decode per release notes).
-  Our images now build v0.7.0, so this is a runtime-flags A/B on HAL8999:
-  `SLM_EXTRA_ARGS="--moe-cache-mib 512"` vs baseline (the old `-ot`
-  first-4 pinning from the MoE bullet above is the reference point).
-  Expected upside: 1.39 GiB free ≈ 8% of expert slots → +6-8% gen at
-  uniform routing, more if routing is skewed. Flag verified to load and
-  serve on this host (granite-4.0-h-tiny, exps=CPU); not yet benched.
+  BENCHED on HAL8999 (2026-10-20): `--cpu-moe --moe-cache-mib 2048` vs
+  `-ot` first-4 static pinning → gen 16.5 vs 20.2 tok/s (−18%), pp
+  unchanged (207 vs 211), VRAM free 1.16 vs 1.38 GiB. Cause: 2048 MiB ≈
+  ~28 slots/layer of 256; general-text routing touches 150+ distinct
+  experts/layer → LRU thrash + host→VRAM copy traffic per miss; and with
+  `--cpu-moe` all expert compute starts on CPU, so the cache can only
+  approach, never beat, static pinning on high-entropy routing. Static
+  `-ot` pinning stays the deployment config (currently first-5). A cache
+  wins only with a
+  small expert working set (narrow-domain load), a bigger VRAM budget, or
+  lower-entropy routing — re-test if the workload changes. (Plausible
+  near-term flip: newer model generations with deliberately concentrated
+  routing shrink the expert working set — the win condition is
+  working-set size vs cache budget, i.e. LRU locality, not model size.)
 - vLLM RFC #38256 — same idea (GPU hot-expert cache, LFRU, cross-layer
   prediction); different engine, useful as a design/benchmark reference.
