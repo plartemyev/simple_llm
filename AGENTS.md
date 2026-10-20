@@ -33,10 +33,16 @@
   mapping (VmLck ≈ file size, including pages of tensors also resident on
   the GPU). Docker's default memlock ulimit (8 MiB) must be raised first:
   compose `ulimits: memlock: -1`. `--n-cpu-moe N` with N ≥ layer count is
-  just "all layers" (Qwen3.6-35B-A3B: block_count 40 → 48 ≡ 999). Tuned for
-  this host (8 GB Vega): `--n-cpu-moe 35` (5 GPU-expert layers ≈ +2.3 GiB
-  VRAM, 0.83 GiB free) → gen 20.3 vs 18.6 tok/s, pp 210 vs 190 tok/s on a
-  3.7k-token prompt (~0.46 GB VRAM per expert layer moved).
+  just "all layers" (Qwen3.6-35B-A3B: block_count 40 → 48 ≡ 999). Deployed
+  on this host (8 GB Vega): `-ot` first-4 pinning
+  (`LLAMA_ARG_OVERRIDE_TENSOR=blk.[0-3].ffn_.*_exps=Vulkan0,exps=CPU`,
+  ~1.39 GiB free) → gen 20.0-20.2 vs 18.6 tok/s, pp 203-208 vs 190 tok/s;
+  ≈ +0.3 tok/s gen (+4 pp) per moved layer (~0.46 GB VRAM each). Which
+  layers to pin is a wash — every token routes through all layers (8/256
+  experts each) and mlock keeps all pages resident; measured first-4 ≡
+  last-4 within noise. v0.6.0 `-ot` GPU buffer name on Vulkan is
+  `Vulkan0` (exact match; a wrong name fails the load listing "Available
+  buffer types") — the pre-fix README said `VULKAN0`.
 - llama.cpp v0.6.0 flash-attn / KV cache: `-fa/--flash-attn` takes an
   optional `on|off|auto` (default `auto`; native env
   `LLAMA_ARG_FLASH_ATTN`), `-ctk/-ctv` = `LLAMA_ARG_CACHE_TYPE_K/V`

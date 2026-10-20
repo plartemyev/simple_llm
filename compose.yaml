@@ -31,7 +31,8 @@
 #   SLM_KV_QUANT=q8_0 docker compose up -d cuda   # quantized KV (-fa on -ctk/-ctv q8_0)
 #
 # GPU-side -ot buffer names are backend-specific: CUDA0, CUDA1, ... under
-# CUDA; VULKAN0, VULKAN1, ... under Vulkan (exps=CPU is universal).
+# CUDA; Vulkan0, Vulkan1, ... under Vulkan (exps=CPU is universal; exact
+# match — a wrong name fails the load listing the accepted names).
 
 x-env: &env
   SLM_MODEL: ${SLM_MODEL:?set SLM_MODEL to an HF id (repo:quant) or a /models/*.gguf name}

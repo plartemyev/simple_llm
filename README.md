@@ -376,8 +376,14 @@ precedence over them):
 | `LLAMA_ARG_OVERRIDE_TENSOR=...` | `-ot` / `--override-tensor` — comma-separated `tensor_pattern=buffer` overrides, e.g. `exps=CPU,iqk=CPU` |
 
 They work with both backends. CPU buffers (`exps=CPU`) are universal;
-GPU-side overrides must name the backend's buffers — `CUDA0`, `CUDA1`, ...
-on CUDA builds, `VULKAN0`, `VULKAN1`, ... on Vulkan builds. Offloading
+GPU-side overrides must name the backend's buffer type — `CUDA0`,
+`CUDA1`, ... on CUDA builds, `Vulkan0`, `Vulkan1`, ... on Vulkan builds
+(exact match; a wrong name fails the load and prints the accepted list
+under "Available buffer types"). Patterns apply first-match-wins, so a
+catch-all can be scoped per layer:
+`LLAMA_ARG_OVERRIDE_TENSOR=blk.[0-3].ffn_.*_exps=Vulkan0,exps=CPU` pins
+only the first four layers' expert tensors to the GPU and leaves the
+rest on the CPU. Offloading
 expert weights to CPU trades throughput for VRAM; useful when a MoE model's
 dense layers fit on the GPU but its expert tensors do not. Set vars only to
 non-empty values (an empty `LLAMA_ARG_N_CPU_MOE` fails to parse). Only the
