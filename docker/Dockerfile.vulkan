@@ -19,7 +19,7 @@ RUN pacman-key --init \
       git cmake ninja curl wget python \
       vulkan-headers vulkan-icd-loader vulkan-validation-layers shaderc spirv-tools spirv-headers
 
-ARG LLAMA_CPP_REF=v0.6.0
+ARG LLAMA_CPP_REF=v0.7.0
 
 RUN git clone --depth 1 --branch "${LLAMA_CPP_REF}" https://github.com/ggml-org/llama.cpp /src/llama.cpp \
  && cmake -S /src/llama.cpp -B /src/llama.cpp/build \
@@ -36,7 +36,7 @@ RUN pacman-key --init \
  && pacman -Syu --noconfirm python python-pip curl \
       vulkan-icd-loader vulkan-radeon libglvnd libx11 libxext libxcb \
  && python -m venv /opt/venv \
- && /opt/venv/bin/pip install --no-cache-dir "openai>=1.60,<3" "pytest>=8"
+ && /opt/venv/bin/pip install --no-cache-dir "openai>=3,<4" "pytest>=9"
 
 COPY --from=build /src/llama.cpp/build/bin/ /app/bin/
 ENV LD_LIBRARY_PATH=/app/bin

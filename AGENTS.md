@@ -1,8 +1,8 @@
 # Tooling notes
 - Arch installs the toolkit under `/opt/cuda`; add `/opt/cuda/bin` to PATH
   or CMake "Could not find nvcc".
-- llama.cpp v0.6.0 `llama-server` needs its full `build/bin/` (companion
-  `libllama*.so`) plus `libcudart.so.12` / `libcublas*` from the toolkit —
+- llama.cpp v0.7.0 `llama-server` needs its full `build/bin/` (companion
+  `libllama*.so`) plus `libcudart.so.13` / `libcublas*` from the toolkit —
   it does not bundle them. Host `libcuda.so.1` arrives only with
   `--gpus`.
 - ggml-vulkan CMake needs Arch `spirv-headers` (+ `shaderc` for glslc).
@@ -18,14 +18,14 @@
   non-root containers that needs `--group-add <render-gid>`
   (`SLM_GROUP_ADD` in the scripts, `group_add` in compose); find the gid
   with `stat -c %g /dev/dri/renderD128`.
-- llama.cpp v0.6.0 native env options (`LLAMA_ARG_*`, e.g.
+- llama.cpp v0.7.0 native env options (`LLAMA_ARG_*`, e.g.
   `LLAMA_ARG_CPU_MOE` / `LLAMA_ARG_N_CPU_MOE` / `LLAMA_ARG_OVERRIDE_TENSOR`)
   are parsed before CLI flags (CLI wins) but crash on set-but-empty values
   (`LLAMA_ARG_N_CPU_MOE=` hits `std::stoi("")`). Forward them only when
   non-empty: `run_server.sh` skips empties explicitly; compose.yaml relies on
   null-passthrough (`VAR:`), which sets the var in the container only when
   the host var is set — never write `${VAR:-}` defaults for these.
-- llama.cpp v0.6.0: `--mlock` is gone — pinning is a `--load-mode` value
+- llama.cpp v0.7.0: `--mlock` is gone — pinning is a `--load-mode` value
   (`-lm auto|none|mmap|mlock|mmap+mlock`). With CPU tensor overrides
   (`--cpu-moe` / `--n-cpu-moe`) plain `mlock` (no-mmap mode) SEGFAULTS at
   load (`llama-mmap.cpp GGML_ASSERT(addr) failed`): the overrides path
@@ -40,15 +40,21 @@
   ≈ +0.3 tok/s gen (+4 pp) per moved layer (~0.46 GB VRAM each). Which
   layers to pin is a wash — every token routes through all layers (8/256
   experts each) and mlock keeps all pages resident; measured first-4 ≡
-  last-4 within noise. v0.6.0 `-ot` GPU buffer name on Vulkan is
+  last-4 within noise. v0.7.0 `-ot` GPU buffer name on Vulkan is
   `Vulkan0` (exact match; a wrong name fails the load listing "Available
   buffer types") — the pre-fix README said `VULKAN0`.
-- llama.cpp v0.6.0 flash-attn / KV cache: `-fa/--flash-attn` takes an
+- llama.cpp v0.7.0 flash-attn / KV cache: `-fa/--flash-attn` takes an
   optional `on|off|auto` (default `auto`; native env
   `LLAMA_ARG_FLASH_ATTN`), `-ctk/-ctv` = `LLAMA_ARG_CACHE_TYPE_K/V`
   (allowed: f32 f16 bf16 q8_0 q4_0 q4_1 iq4_nl q5_0 q5_1). Quantized V
   cache requires FA on — `SLM_KV_QUANT` wraps the exact trio
   (`--flash-attn on -ctk/-ctv <type>`) in `docker/entrypoint.sh`.
+- llama.cpp v0.7.0 behavior changes (checked against our setup): the server
+  default port changed 8080 → 9931 (no impact — entrypoint always passes
+  `--port`); `--jinja` is now default-enabled (the entrypoint's explicit
+  `--jinja` is redundant but still accepted); new `--moe-cache-mib N` —
+  GPU LRU cache for MoE experts kept in host memory (#29887, see the watch
+  list below; verified working with `exps=CPU` on granite-4.0-h-tiny).
 - Compose 5.x: profiled services resolve via `docker compose config <service>`
   (positional); `--profile` flag no longer exists on `config`. Same for
   `down`/`stop`: with every service under a profile, plain `docker compose
@@ -88,3 +94,16 @@
 - For long-running commands (e.g. `docker compose up --build`), detach with `setsid ... </dev/null >path/.tmp/run.log 2>&1 & disown` and poll the log in separate tool calls; do not pipe through `tail` (it buffers until EOF, so a hanging build shows no output and times out the tool).
 - When investigating network/services unavailability use `nc -zvw 1 TARGET TARGET_PORT`, `curl -vkL TARGET >/dev/null`, `mtr --json --aslookup --mpls --timeout 30 TARGET`;
 - `nc -zuvw2 host port` "succeeding" proves nothing for UDP: a UDP `connect()` never fails on a remote host, so it reports success even when every packet is silently dropped. Verify UDP reachability with a server-side `tcpdump -ni <wan_if> udp port <port>` while generating traffic, or `mtr --udp`;
+
+## Upstream watch list (deployment: HAL8999 vulkan-amd)
+- LANDED in llama.cpp v0.7.0 (was: RFC #28248 / issue #20757): GPU cache
+  for MoE experts kept in host memory — `--moe-cache-mib N` (MiB; LRU,
+  shared across GPUs via #30112, up to ~2.2x decode per release notes).
+  Our images now build v0.7.0, so this is a runtime-flags A/B on HAL8999:
+  `SLM_EXTRA_ARGS="--moe-cache-mib 512"` vs baseline (the old `-ot`
+  first-4 pinning from the MoE bullet above is the reference point).
+  Expected upside: 1.39 GiB free ≈ 8% of expert slots → +6-8% gen at
+  uniform routing, more if routing is skewed. Flag verified to load and
+  serve on this host (granite-4.0-h-tiny, exps=CPU); not yet benched.
+- vLLM RFC #38256 — same idea (GPU hot-expert cache, LFRU, cross-layer
+  prediction); different engine, useful as a design/benchmark reference.

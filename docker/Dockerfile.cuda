@@ -3,68 +3,49 @@
 # Arch Linux-based image serving an OpenAI-compatible LLM endpoint via
 # llama.cpp (llama-server), CUDA backend.
 #
-# Toolkit pinning rationale:
-#   - Current Arch `cuda` is 13.x, which requires driver >= 580. GPU hosts
-#     running the 570 driver series (CUDA 12.8 generation) cannot run
-#     CUDA 13 binaries, so the toolkit is pinned to the newest 12.x release
-#     in the Arch Linux Archive: cuda 12.9.1-2.
-#   - CUDA *minor version compatibility* guarantees that applications built
-#     against any CUDA 12.x toolkit run on any R525+ driver, provided the
-#     binaries carry SASS for the target GPU (no PTX JIT). We compile
-#     explicit sm_XX cubins via CMAKE_CUDA_ARCHITECTURES below.
-#   - nvcc 12.9 supports host GCC up to 14.x (see Table 2 of the CUDA
-#     12.9 Installation Guide). `gcc14` has been dropped from current
-#     repos, so the compiler is pinned from the archive as well.
+# Toolkit: the current Arch `cuda` package (13.x) from the repos — no
+# pinning, matching the current NVIDIA drivers (>= 580 required by CUDA 13)
+# hosts run from the same repos. Driver coupling stays out of the image:
+# the host driver's libcuda.so is injected at runtime by the nvidia
+# container runtime; only the toolkit's runtime libraries (libcudart.so.13,
+# libcublas*) are baked in. Binaries carry explicit sm_XX SASS (CUDA_ARCH
+# build-arg below) so loads never depend on PTX JIT.
+# nvcc 13.x supports host GCC up to 16.x (CUDA 13.x Installation Guide,
+# Table 3). Defensive check: nvcc rejects host compilers above the ceiling
+# compiled into /opt/cuda/include/crt/host_config.h — the build fails fast
+# with a clear message if Arch's gcc moves past it before the toolkit does.
 
 FROM archlinux:base-devel AS build
 
 RUN pacman-key --init \
  && pacman -Syu --noconfirm \
-      git cmake ninja curl wget python
+      git cmake ninja curl wget python cuda
 
-# --- host compiler for nvcc (gcc14, Arch Linux Archive) ------------------------
-ARG GCC14_VER=14.3.1%2Br416%2Bg44d5743651c4-2
+# Defensive check (see header): nvcc's compiled-in host-compiler ceiling
+# must still accept the system gcc Arch ships.
+ARG EXPECTED_NVCC_GCC_LIMIT=16
 
-RUN curl -fsSL -o /tmp/gcc14-libs.pkg.tar.zst \
-      "https://archive.archlinux.org/packages/g/gcc14-libs/gcc14-libs-${GCC14_VER}-x86_64.pkg.tar.zst" \
- && curl -fsSL -o /tmp/gcc14.pkg.tar.zst \
-      "https://archive.archlinux.org/packages/g/gcc14/gcc14-${GCC14_VER}-x86_64.pkg.tar.zst" \
- && pacman -U --noconfirm /tmp/gcc14-libs.pkg.tar.zst /tmp/gcc14.pkg.tar.zst \
- && rm /tmp/gcc14*.pkg.tar.zst
-
-# --- CUDA toolkit from the Arch Linux Archive ---------------------------------
-ARG CUDA_PKG_URL=https://archive.archlinux.org/packages/c/cuda/cuda-12.9.1-2-x86_64.pkg.tar.zst
-# Defensive check: nvcc rejects host compilers above the ceiling compiled into
-# /opt/cuda/include/crt/host_config.h. Fail the build with a clear message if
-# the pin changes and the expectation no longer holds.
-ARG EXPECTED_NVCC_GCC_LIMIT=14
-# GPU compute capability to compile SASS for (RTX 3090 = 86). Space-separated
-# list, e.g. "86;89;120" for mixed fleets.
-ARG CUDA_ARCH=86
-
-RUN curl -fsSL -o /tmp/cuda.pkg.tar.zst "${CUDA_PKG_URL}" \
- && pacman -U --noconfirm --assume-installed nvidia-utils=9999 /tmp/cuda.pkg.tar.zst \
- && rm /tmp/cuda.pkg.tar.zst \
- && nvcc_limit="$(grep -m1 -oP '(?<=#if __GNUC__ > )\d+' /opt/cuda/include/crt/host_config.h || true)" \
+RUN nvcc_limit="$(grep -m1 -oP '(?<=#if __GNUC__ > )\d+' /opt/cuda/include/crt/host_config.h || true)" \
  && if [ "${nvcc_limit}" != "${EXPECTED_NVCC_GCC_LIMIT}" ]; then \
-      echo "ERROR: nvcc host-compiler ceiling is '${nvcc_limit}', expected '${EXPECTED_NVCC_GCC_LIMIT}'. Adjust the gcc pin." >&2; \
+      echo "ERROR: nvcc host-compiler ceiling is '${nvcc_limit}', expected '${EXPECTED_NVCC_GCC_LIMIT}'. Pin a compatible gcc or bump the expectation." >&2; \
       exit 1; \
     fi
 
 # Arch installs the toolkit under /opt/cuda; make nvcc visible to CMake
 ENV PATH="/opt/cuda/bin:${PATH}"
 
+# GPU compute capability to compile SASS for (RTX 3090 = 86). Space-separated
+# list, e.g. "86;89;120" for mixed fleets.
+ARG CUDA_ARCH=86
+
 # --- llama.cpp -----------------------------------------------------------------
-ARG LLAMA_CPP_REF=v0.6.0
+ARG LLAMA_CPP_REF=v0.7.0
 
 RUN git clone --depth 1 --branch "${LLAMA_CPP_REF}" https://github.com/ggml-org/llama.cpp /src/llama.cpp \
  && cmake -S /src/llama.cpp -B /src/llama.cpp/build \
       -DCMAKE_BUILD_TYPE=Release \
       -DGGML_CUDA=ON \
       -DCMAKE_CUDA_ARCHITECTURES="${CUDA_ARCH}" \
-      -DCMAKE_CUDA_HOST_COMPILER=/usr/bin/gcc-14 \
-      -DCMAKE_C_COMPILER=/usr/bin/gcc-14 \
-      -DCMAKE_CXX_COMPILER=/usr/bin/g++-14 \
       -DLLAMA_CURL=ON \
       -DGGML_NATIVE=OFF \
  && cmake --build /src/llama.cpp/build --config Release -j"$(nproc)" \
@@ -76,16 +57,16 @@ FROM archlinux:base-devel AS runtime
 RUN pacman-key --init \
  && pacman -Syu --noconfirm python python-pip curl \
  && python -m venv /opt/venv \
- && /opt/venv/bin/pip install --no-cache-dir "openai>=1.60,<3" "pytest>=8"
+ && /opt/venv/bin/pip install --no-cache-dir "openai>=3,<4" "pytest>=9"
 
 # llama-server/llama-cli plus all companion shared libraries (libllama*.so,
 # ggml backends) produced next to the binaries, and the CUDA runtime
 # libraries from the toolkit (the driver's libcuda.so comes from the host
 # via the nvidia container runtime).
 COPY --from=build /src/llama.cpp/build/bin/ /app/bin/
-COPY --from=build /opt/cuda/lib64/libcudart.so.12* /app/cudalib/
-COPY --from=build /opt/cuda/lib64/libcublas.so.12* /app/cudalib/
-COPY --from=build /opt/cuda/lib64/libcublasLt.so.12* /app/cudalib/
+COPY --from=build /opt/cuda/lib64/libcudart.so.13* /app/cudalib/
+COPY --from=build /opt/cuda/lib64/libcublas.so.13* /app/cudalib/
+COPY --from=build /opt/cuda/lib64/libcublasLt.so.13* /app/cudalib/
 ENV LD_LIBRARY_PATH=/app/bin:/app/cudalib
 
 # repository: client, benchmarks, tests (usable inside the container)

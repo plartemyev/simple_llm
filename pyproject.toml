@@ -6,12 +6,12 @@ readme = "README.md"
 license = "GPL-2.0-only"
 requires-python = ">=3.11"
 dependencies = [
-    "openai>=1.60,<3",
+    "openai>=3,<4",
 ]
 
 [project.optional-dependencies]
 test = [
-    "pytest>=8",
+    "pytest>=9",
 ]
 
 [build-system]

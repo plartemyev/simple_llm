@@ -302,29 +302,25 @@ host environment itself reaches the container only through the variables
 listed above (compose: only the keys declared in `compose.yaml`).
 
 Container-only (not forwarded by the helpers): `SLM_HOST`, `SLM_GPU_LAYERS`.
-Image build args (`CUDA_ARCH`, `CUDA_PKG_URL`, `LLAMA_CPP_REF`) are
+Image build args (`CUDA_ARCH`, `LLAMA_CPP_REF`) are
 documented in the `docker/Dockerfile.*` headers.
 
 ## GPU backend notes
 
 ### CUDA
 
-Arch's current `cuda` package is 13.x and needs driver ≥ 580. GPU hosts
-running the **570 driver series** (CUDA 12.8 generation) are instead served
-with the newest 12.x toolkit from the [Arch Linux Archive]
-(https://archive.archlinux.org): **`cuda 12.9.1-2`**, pinned in
-`docker/Dockerfile.cuda`:
+The image builds against the **current Arch `cuda` package (13.x) from the
+repos** — no pinning, matching the current NVIDIA drivers hosts run from the
+same repos (`nvidia-utils` ≥ 580 is what CUDA 13 requires). Driver coupling
+stays out of the image: the host driver's `libcuda.so` is injected at
+runtime by the nvidia container runtime; only the toolkit's runtime
+libraries (`libcudart.so.13`, `libcublas*`) are baked in.
 
-- CUDA *minor version compatibility* lets binaries built with any 12.x
-  toolkit run on any R525+ driver **when they carry SASS for the target
-  GPU** — the Dockerfile compiles explicit `sm_XX` cubins
-  (`CUDA_ARCH` build-arg, default `86` for Ampere), so no PTX JIT is
-  involved.
-- nvcc 12.9 accepts host GCC up to 14.x; the build pins `gcc14` from the
-  archive (dropped from current repos) and *verifies* the ceiling compiled
-  into `/opt/cuda/include/crt/host_config.h` (fails fast on mismatch).
-- If a host driver predates R525 or oddities appear, drop
-  `CUDA_PKG_URL` to `cuda-12.8.1-2` (also in the archive) — one-ARG change.
+- Binaries compile explicit `sm_XX` cubins (`CUDA_ARCH` build-arg, default
+  `86` for Ampere), so loads never depend on PTX JIT.
+- nvcc 13.x supports host GCC up to 16.x; the build *verifies* the ceiling
+  compiled into `/opt/cuda/include/crt/host_config.h` (fails fast with a
+  clear message if Arch's gcc moves past it before the toolkit does).
 
 ### Vulkan
 
