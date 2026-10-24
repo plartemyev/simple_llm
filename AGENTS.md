@@ -115,3 +115,14 @@
   working-set size vs cache budget, i.e. LRU locality, not model size.)
 - vLLM RFC #38256 — same idea (GPU hot-expert cache, LFRU, cross-layer
   prediction); different engine, useful as a design/benchmark reference.
+- Qwen3.8-Flash-Next (2026-08, 125B+51B-ngram/6B active, `qwen4_exp`
+  Qwen4 preview) — the offload-first model generation: 512 fine-grained
+  experts, 10 routed + 1 shared per token (1.95% activation), a 51B
+  n-gram lookup table explicitly "more amenable to offloading than MoE",
+  tiny KV via QSA sparse attention. Structurally ideal for
+  `--moe-cache-mib` (units ~2.8 MB @Q4 → same budget holds ~55% more
+  units than Qwen3.6-35B). BLOCKED on HAL8999 by system RAM, not VRAM:
+  smallest GGUF (ISTA-DASLab expert-pruned Coder IQ1_M) = 58.4 GB vs
+  62 GiB RAM (~45 usable with the qemu VM). Re-evaluate on a RAM
+  upgrade, qemu teardown (borderline, IQ1_M quality), or a smaller
+  qwen4_exp-family open release.
