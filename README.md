@@ -19,7 +19,8 @@ a hosted LLM API with a local GPU.
 
 ```
 docker/            Dockerfile.cuda / Dockerfile.vulkan + entrypoint
-compose.yaml       docker compose service definitions (cuda / vulkan-nvidia / vulkan-amd)
+compose.yaml       docker compose service definitions (cuda / vulkan-nvidia /
+                   vulkan-amd chat services + embedder / embedder-amd)
 scripts/           build / run / data-pull / integration-test helpers
 simple_llm/        thin OpenAI-compatible client (phrase + splits profiles)
 benchmarks/        benchmark infrastructure (slicer, runner, quality, report)
@@ -74,6 +75,10 @@ The same environment variables configure it (see [Configuration](#configuration)
 variables can also live in a `.env` file next to `compose.yaml` (auto-loaded,
 git-ignored). `secrets.env` is loaded when present and forwarded wholesale
 into the container — see [Configuration](#configuration).
+
+Two optional text-embedder services (`embedder` on CPU, `embedder-amd` on
+the AMD GPU) publish an OpenAI-compatible embeddings endpoint on
+`127.0.0.1:8012` — see [Embeddings (text)](#embeddings-text).
 
 ## Home-lab quick start: large MoE on a small AMD GPU
 
@@ -267,6 +272,51 @@ curl -s http://127.0.0.1:8011/v1/chat/completions \
 Projector weights add VRAM on top of the main model (a F16/BF16 projector is
 typically 0.5–1.5 GB) — account for it when sizing the quant against the
 card.
+
+## Embeddings (text)
+
+The compose `embedder` / `embedder-amd` services serve
+[ggml-org/bge-m3-Q8_0-GGUF](https://huggingface.co/ggml-org/bge-m3-Q8_0-GGUF)
+(~0.6 GB; ggml-org publishes bge-m3 as per-quant repos — there is no
+multi-quant `bge-m3-GGUF` to pass a `:QUANT` suffix to) as a second endpoint
+on `127.0.0.1:8012`: OpenAI-compatible
+`POST /v1/embeddings` returning 1024-dim dense vectors (100+ languages, up
+to 8192 tokens per input). `embedder` runs on CPU (`SLM_GPU_LAYERS=0` — a
+568M prefill-only encoder needs no GPU, so all VRAM stays with the chat
+model); `embedder-amd` runs it on the AMD GPU and takes ~0.8 GiB VRAM
+(weights plus prefill buffers). Measured on an 8-core Ryzen + small Vega
+iGPU: short queries ~80 ms on CPU; a ~1k-token input ~20 s on CPU vs ~4 s
+on the iGPU. On the 8 GB reference deployment running the chat model
+(~1 GiB VRAM free), prefer the CPU one.
+
+```shell
+SLM_MODEL=<any value> docker compose up -d embedder  # the file-wide SLM_MODEL
+                                                     # check still applies; the
+                                                     # embedder ignores it
+docker compose logs -f embedder
+curl -s http://127.0.0.1:8012/v1/embeddings \
+  -H 'Content-Type: application/json' \
+  -d '{"input": ["first text", "second text"]}'
+```
+
+Two flags matter and the services already set them. `--pooling cls` —
+bge-m3's dense embeddings are CLS-pooled (also what the GGUF metadata
+carries; forcing e.g. `mean` silently degrades quality). `-ub 8192` with
+`SLM_PARALLEL=1` — an embedding input must be prefilled in a single ubatch
+(bidirectional attention cannot span ubatch boundaries), so the whole input
+must fit context and ubatch at once; with the context split across several
+slots, per-input length shrinks accordingly.
+
+Offline runs follow the same story as the chat model: the first start
+populates the shared `data/cache`; afterwards either add `--offline` or
+hardlink the snapshot into `data/models` and override the service's
+`SLM_MODEL` in a `compose.override.yaml` (`environment:` key). Without
+compose, `run_server.sh` serves the same endpoint:
+
+```shell
+SLM_PARALLEL=1 SLM_EXTRA_ARGS="--embeddings --pooling cls -ub 8192" \
+  scripts/run_server.sh ggml-org/bge-m3-Q8_0-GGUF -p 8012 -g 1
+```
 
 ## Configuration
 

@@ -4,6 +4,8 @@
 #   docker compose up -d cuda      # CUDA backend (simple_llm:cuda image)
 #   docker compose up -d vulkan-nvidia # Vulkan backend, NVIDIA host
 #   docker compose up -d vulkan-amd # Vulkan backend, AMD host (/dev/dri + in-image RADV)
+#   docker compose up -d embedder  # text embedder (CPU) on 127.0.0.1:8012
+#   docker compose up -d embedder-amd # text embedder on the AMD GPU
 #   docker compose logs -f cuda
 #   docker compose down cuda       # teardown needs the service name (or
 #                                  # --profile): plain `down` is a no-op here
@@ -120,4 +122,57 @@ services:
     #   - 992  # host gid: stat -c %g /dev/dri/renderD128
     environment:
       <<: *env
+      GGML_VK_VISIBLE_DEVICES:
+
+  # Text embedder (README "Embeddings"): bge-m3, 1024-dim dense vectors via
+  # the OpenAI-compatible /v1/embeddings endpoint. Host port 8012; the
+  # container-side port stays at the entrypoint's 8011 default (SLM_PORT is
+  # the *listen* port inside the container — never change it per service).
+  # CLS pooling is what bge-m3's dense embeddings were trained with (and
+  # what the GGUF metadata carries — the flag documents it). -ub 8192
+  # prefills an entire input in one ubatch: embeddings are bidirectional,
+  # so an input split across ubatches cannot attend past the chunk edge.
+  # SLM_PARALLEL=1 keeps the full 8192-token context for a single input.
+  #
+  # This variant runs on CPU (SLM_GPU_LAYERS=0): a 568M prefill-only
+  # encoder needs no GPU, leaving all VRAM to the chat model. Bulk
+  # indexing is CPU-bound; queries are still sub-second.
+  embedder:
+    <<: *common
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.vulkan
+    image: simple_llm:vulkan
+    profiles: [embedder]
+    ports:
+      - "127.0.0.1:8012:8011"
+    environment:
+      SLM_MODEL: ggml-org/bge-m3-Q8_0-GGUF
+      SLM_GPU_LAYERS: 0
+      SLM_CTX_SIZE: 8192
+      SLM_PARALLEL: 1
+      SLM_EXTRA_ARGS: --embeddings --pooling cls -ub 8192
+
+  # Same embedder on the AMD GPU (/dev/dri + in-image RADV, see
+  # vulkan-amd): takes ~0.8 GiB VRAM (0.6 GiB Q8_0 weights plus prefill
+  # buffers) — on the 8 GB reference deployment running the chat model,
+  # prefer the CPU embedder above.
+  embedder-amd:
+    <<: *common
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.vulkan
+    image: simple_llm:vulkan
+    profiles: [embedder-amd]
+    devices:
+      - /dev/dri:/dev/dri
+    # group_add:
+    #   - 992  # host gid for 0660 render nodes: stat -c %g /dev/dri/renderD128
+    ports:
+      - "127.0.0.1:8012:8011"
+    environment:
+      SLM_MODEL: ggml-org/bge-m3-Q8_0-GGUF
+      SLM_CTX_SIZE: 8192
+      SLM_PARALLEL: 1
+      SLM_EXTRA_ARGS: --embeddings --pooling cls -ub 8192
       GGML_VK_VISIBLE_DEVICES:
