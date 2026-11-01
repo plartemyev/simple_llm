@@ -6,6 +6,7 @@
 #   docker compose up -d vulkan-amd # Vulkan backend, AMD host (/dev/dri + in-image RADV)
 #   docker compose up -d embedder  # text embedder (CPU) on 127.0.0.1:8012
 #   docker compose up -d embedder-amd # text embedder on the AMD GPU
+#   docker compose up -d secondary # secondary CPU chat model on 127.0.0.1:8013
 #   docker compose logs -f cuda
 #   docker compose down cuda       # teardown needs the service name (or
 #                                  # --profile): plain `down` is a no-op here
@@ -46,6 +47,20 @@ x-env: &env
   LLAMA_ARG_CPU_MOE:
   LLAMA_ARG_N_CPU_MOE:
   LLAMA_ARG_OVERRIDE_TENSOR:
+
+# Secondary chat model env: the SLM_SECONDARY_* namespace keeps the two
+# models independent, and the LLAMA_ARG_* passthroughs are deliberately
+# absent — GPU-buffer -ot overrides from the primary's .env would fail a
+# CPU-only load. Extra flags go through SLM_SECONDARY_EXTRA_ARGS. Nothing
+# here is required at parse time (other services must start without the
+# secondary configured): an unconfigured `up secondary` fails in the
+# entrypoint with the missing-variable message.
+x-secondary-env: &secondary-env
+  SLM_MODEL: ${SLM_SECONDARY_MODEL:-}
+  SLM_CTX_SIZE: ${SLM_SECONDARY_CTX_SIZE:-8192}
+  SLM_PARALLEL: ${SLM_SECONDARY_PARALLEL:-4}
+  SLM_KV_QUANT: ${SLM_SECONDARY_KV_QUANT:-}
+  SLM_EXTRA_ARGS: ${SLM_SECONDARY_EXTRA_ARGS:-}
 
 x-common: &common
   restart: unless-stopped
@@ -176,3 +191,25 @@ services:
       SLM_PARALLEL: 1
       SLM_EXTRA_ARGS: --embeddings --pooling cls -ub 8192
       GGML_VK_VISIBLE_DEVICES:
+
+  # Secondary chat model for simpler tasks alongside the primary one
+  # (README "Secondary model"): a second llama-server on 127.0.0.1:8013,
+  # pinned to the CPU (SLM_GPU_LAYERS=0) so all VRAM stays with the primary
+  # chat model. Configured through its own SLM_SECONDARY_* variables (see
+  # the x-secondary-env anchor) so primary and secondary never share state:
+  #
+  #   SLM_SECONDARY_MODEL=unsloth/Qwen3.5-9B-GGUF:Q4_K_M \
+  #   SLM_SECONDARY_CTX_SIZE=32768 SLM_SECONDARY_KV_QUANT=q4_0 \
+  #   docker compose up -d secondary
+  secondary:
+    <<: *common
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.vulkan
+    image: simple_llm:vulkan
+    profiles: [secondary]
+    ports:
+      - "127.0.0.1:8013:8011"
+    environment:
+      <<: *secondary-env
+      SLM_GPU_LAYERS: 0

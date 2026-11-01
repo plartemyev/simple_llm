@@ -20,7 +20,8 @@ a hosted LLM API with a local GPU.
 ```
 docker/            Dockerfile.cuda / Dockerfile.vulkan + entrypoint
 compose.yaml       docker compose service definitions (cuda / vulkan-nvidia /
-                   vulkan-amd chat services + embedder / embedder-amd)
+                   vulkan-amd chat services + secondary CPU chat + embedder /
+                   embedder-amd)
 scripts/           build / run / data-pull / integration-test helpers
 simple_llm/        thin OpenAI-compatible client (phrase + splits profiles)
 benchmarks/        benchmark infrastructure (slicer, runner, quality, report)
@@ -78,7 +79,9 @@ into the container — see [Configuration](#configuration).
 
 Two optional text-embedder services (`embedder` on CPU, `embedder-amd` on
 the AMD GPU) publish an OpenAI-compatible embeddings endpoint on
-`127.0.0.1:8012` — see [Embeddings (text)](#embeddings-text).
+`127.0.0.1:8012` — see [Embeddings (text)](#embeddings-text). A `secondary`
+service runs a second, smaller chat model alongside the primary on
+`127.0.0.1:8013` — see [Secondary model](#secondary-model).
 
 ## Home-lab quick start: large MoE on a small AMD GPU
 
@@ -318,6 +321,50 @@ SLM_PARALLEL=1 SLM_EXTRA_ARGS="--embeddings --pooling cls -ub 8192" \
   scripts/run_server.sh ggml-org/bge-m3-Q8_0-GGUF -p 8012 -g 1
 ```
 
+## Secondary model
+
+The compose `secondary` service runs a second llama-server next to the
+primary chat model for simpler tasks (short transformations, routing,
+classification — workloads that do not need the big model) on
+`127.0.0.1:8013`. It is pinned to the CPU (`SLM_GPU_LAYERS=0`), so all VRAM
+stays with the primary; size it against system RAM instead (weights plus
+context — with `SLM_SECONDARY_KV_QUANT=q4_0` a 32k context costs ~1.5 GB
+for a 9B model).
+
+Configuration mirrors the primary's variables under a `SLM_SECONDARY_*`
+namespace, so primary and secondary never share state:
+
+```shell
+SLM_SECONDARY_MODEL=unsloth/Qwen3.5-9B-GGUF:Q4_K_M \
+SLM_SECONDARY_CTX_SIZE=32768 SLM_SECONDARY_PARALLEL=4 \
+SLM_SECONDARY_KV_QUANT=q4_0 docker compose up -d secondary
+```
+
+| variable | default | purpose |
+|---|---|---|
+| `SLM_SECONDARY_MODEL` | — (required) | same format as `SLM_MODEL` |
+| `SLM_SECONDARY_CTX_SIZE` | `8192` | context size, tokens (divided across slots) |
+| `SLM_SECONDARY_PARALLEL` | `4` | concurrent slots |
+| `SLM_SECONDARY_KV_QUANT` | — | KV cache type, e.g. `q4_0` (enables flash attention) |
+| `SLM_SECONDARY_EXTRA_ARGS` | — | extra llama-server flags (e.g. `--api-key`, `--offline`) |
+
+Unlike the primary, the `LLAMA_ARG_*` MoE/tensor-placement passthroughs do
+not reach this service: the primary's `.env` values name GPU-side buffers
+(`Vulkan0`, `CUDA0`, ...), which would fail a CPU-only load. Give the
+secondary its own flags through `SLM_SECONDARY_EXTRA_ARGS` — and note the
+primary's `SLM_EXTRA_ARGS` (API key, `--offline`) does not carry over
+either. Offline serving works exactly as for the primary (see
+[Model cache and offline runs](#model-cache-and-offline-runs)): let the
+first start download into the shared cache, then hardlink the snapshot into
+`data/models` and point `SLM_SECONDARY_MODEL` at the file. Without compose,
+the same endpoint is one `run_server.sh` call with a free port and name
+(`-ngl 0` keeps the model on the CPU — the scripts do not forward
+`SLM_GPU_LAYERS`; the default GPU wiring is harmless for a CPU-only load):
+
+```shell
+scripts/run_server.sh unsloth/Qwen3.5-9B-GGUF:Q4_K_M -p 8013 -n simple_llm2 -- -ngl 0
+```
+
 ## Configuration
 
 Environment variables select the backend, size the server, and tune
@@ -339,6 +386,9 @@ by the image entrypoint / llama-server directly.
 | `SLM_EXTRA_ARGS` | scripts, compose | — | extra llama-server flags, word-split; overrides `LLAMA_ARG_*` env vars |
 | `SLM_KV_QUANT` | scripts, compose | — | K/V cache type (e.g. `q8_0`), enables flash attention — see [KV cache quantization](#kv-cache-quantization) |
 | `SLM_MMPROJ` | scripts, compose | — | vision control: `auto` (HF repos download+load their projector), a projector path/name, unset = text-only — see [Vision (image-to-text)](#vision-image-to-text) |
+| `SLM_SECONDARY_MODEL` | compose | — (required) | secondary model, same format as `SLM_MODEL` — served CPU-only on 127.0.0.1:8013, see [Secondary model](#secondary-model) |
+| `SLM_SECONDARY_CTX_SIZE` / `SLM_SECONDARY_PARALLEL` | compose | `8192` / `4` | secondary context / slots |
+| `SLM_SECONDARY_KV_QUANT` / `SLM_SECONDARY_EXTRA_ARGS` | compose | — | secondary KV cache type / extra llama-server flags |
 | `SLM_UID` / `SLM_GID` | compose | `1000` | container uid:gid, keeps `./data` host-user-owned |
 | `SLM_GROUP_ADD` | scripts | — | supplementary host group ids (space/comma separated) for group-restricted `/dev/dri/renderD*` nodes; compose: `group_add` |
 | `LLAMA_ARG_CPU_MOE`, `LLAMA_ARG_N_CPU_MOE`, `LLAMA_ARG_OVERRIDE_TENSOR` | both (passthrough) | — | MoE / tensor-placement tuning — see [MoE offload](#moe-offload--tensor-placement) |
