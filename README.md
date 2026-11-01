@@ -329,7 +329,9 @@ classification — workloads that do not need the big model) on
 `127.0.0.1:8013`. It is pinned to the CPU (`SLM_GPU_LAYERS=0`), so all VRAM
 stays with the primary; size it against system RAM instead (weights plus
 context — with `SLM_SECONDARY_KV_QUANT=q4_0` a 32k context costs ~1.5 GB
-for a 9B model).
+for a 9B model). On a shared host, pin the weights with
+`--load-mode mmap+mlock` so they survive the other services' memory
+pressure — see [RAM pinning (mlock)](#ram-pinning-mlock).
 
 Configuration mirrors the primary's variables under a `SLM_SECONDARY_*`
 namespace, so primary and secondary never share state:
@@ -486,6 +488,27 @@ non-empty values (an empty `LLAMA_ARG_N_CPU_MOE` fails to parse). Only the
 three vars above are declared in the helpers; any other `LLAMA_ARG_*`
 reaches the container through `secrets.env` (forwarded wholesale — see
 [Configuration](#configuration)).
+
+### RAM pinning (mlock)
+
+llama.cpp v0.7.0 has no `--mlock` flag; pinning is a `--load-mode` value.
+To keep the kernel from evicting a model's weight pages under memory
+pressure (deterministic latency at the cost of non-reclaimable RAM), pass
+`--load-mode mmap+mlock` — e.g. `SLM_EXTRA_ARGS="--load-mode mmap+mlock"` —
+and raise the container's memlock limit (Docker's default is 8 MiB):
+
+```yaml
+# compose service
+ulimits:
+  memlock: -1
+```
+
+`mmap+mlock` locks the whole model file mapping (`VmLck` ≈ file size, which
+is why the limit must be raised); it needs no extra privileges with an
+unlimited ulimit. Plain `mlock` (without `mmap`) must not be combined with
+CPU tensor overrides — it segfaults at load. Pinning covers mapped weights
+only: the KV cache is anonymous memory, which the kernel never page-cache
+evicts but may swap out under real pressure.
 
 ### KV cache quantization
 
