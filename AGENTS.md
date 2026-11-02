@@ -20,11 +20,12 @@
   with `stat -c %g /dev/dri/renderD128`.
 - llama.cpp v0.7.0 native env options (`LLAMA_ARG_*`, e.g.
   `LLAMA_ARG_CPU_MOE` / `LLAMA_ARG_N_CPU_MOE` / `LLAMA_ARG_OVERRIDE_TENSOR`)
-  are parsed before CLI flags (CLI wins) but crash on set-but-empty values
-  (`LLAMA_ARG_N_CPU_MOE=` hits `std::stoi("")`). Forward them only when
-  non-empty: `run_server.sh` skips empties explicitly; compose.yaml relies on
-  null-passthrough (`VAR:`), which sets the var in the container only when
-  the host var is set — never write `${VAR:-}` defaults for these.
+  are parsed before CLI flags (CLI wins). Correction (2026-11-02): compose
+  `VAR:` null keys land in the container as EMPTY strings always (visible in
+  `docker inspect` Config.Env), and v0.7.0 tolerates empty `LLAMA_ARG_*`
+  values — the primary has run with an empty `LLAMA_ARG_N_CPU_MOE` since
+  Oct 25 without a crash. The old "crash on set-but-empty" claim did not
+  reproduce on v0.7.0; passing non-empty values only remains good hygiene.
 - llama.cpp v0.7.0: `--mlock` is gone — pinning is a `--load-mode` value
   (`-lm auto|none|mmap|mlock|mmap+mlock`). With CPU tensor overrides
   (`--cpu-moe` / `--n-cpu-moe`) plain `mlock` (no-mmap mode) SEGFAULTS at
