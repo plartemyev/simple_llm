@@ -24,6 +24,11 @@
 #                   enables flash attention along with it (quantized V
 #                   cache requires FA)
 #   SLM_EXTRA_ARGS  extra llama-server flags, word-split
+#   SLM_SCHED_BATCH 1 = run llama-server under SCHED_BATCH (chrt -b 0):
+#                   its threads stop being treated as interactive and yield
+#                   wake-up preemption to normal-priority work; thread
+#                   affinity / nice levels have native llama-server flags
+#                   (--cpu-range, --prio) — pass those via SLM_EXTRA_ARGS
 #   HF_TOKEN        optional; required only for gated HF repositories
 #
 # llama-server also honors its native LLAMA_ARG_* env vars directly (e.g.
@@ -81,6 +86,13 @@ if [ -n "${SLM_MMPROJ:-}" ]; then
 else
   # text-only default: never download or load a multimodal projector
   args+=(--no-mmproj)
+fi
+
+# SCHED_BATCH opt-in: the whole process (threadpool inherits) becomes a
+# batch-class workload — chrt ships in the base image, and SCHED_BATCH is
+# unprivileged. Affinity/nice have native llama-server flags instead.
+if [ "${SLM_SCHED_BATCH:-}" = 1 ]; then
+  exec chrt -b 0 llama-server "${args[@]}" ${SLM_EXTRA_ARGS:-}
 fi
 
 # shellcheck disable=SC2086

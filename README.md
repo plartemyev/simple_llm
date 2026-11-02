@@ -333,6 +333,19 @@ for a 9B model). On a shared host, pin the weights with
 `--load-mode mmap+mlock` so they survive the other services' memory
 pressure — see [RAM pinning (mlock)](#ram-pinning-mlock).
 
+Vision (image-to-text) mirrors the primary's [rules](#vision-image-to-text):
+`SLM_SECONDARY_MMPROJ` accepts `auto` (an HF-id model downloads its
+projector) or a projector file under `data/models` — the offline-serving
+way; unset stays text-only (`--no-mmproj`). CPU-only vision works but
+prefill is slow: budget request time accordingly.
+
+CPU partitioning on a shared host uses native llama-server flags in
+`SLM_SECONDARY_EXTRA_ARGS` — `--cpu-range lo-hi` (with a matching
+`--threads`) pins the compute threads to that CPU range, `--prio -1` drops
+them to nice 5 — while `SLM_SECONDARY_SCHED_BATCH=1` runs the whole server
+as a SCHED_BATCH workload that yields wake-up preemption to interactive
+work (docker/entrypoint.sh, via `chrt -b 0`).
+
 Configuration mirrors the primary's variables under a `SLM_SECONDARY_*`
 namespace, so primary and secondary never share state:
 
@@ -348,7 +361,9 @@ SLM_SECONDARY_KV_QUANT=q4_0 docker compose up -d secondary
 | `SLM_SECONDARY_CTX_SIZE` | `8192` | context size, tokens (divided across slots) |
 | `SLM_SECONDARY_PARALLEL` | `4` | concurrent slots |
 | `SLM_SECONDARY_KV_QUANT` | — | KV cache type, e.g. `q4_0` (enables flash attention) |
-| `SLM_SECONDARY_EXTRA_ARGS` | — | extra llama-server flags (e.g. `--api-key`, `--offline`) |
+| `SLM_SECONDARY_MMPROJ` | — | vision projector: `auto`, or a file under `data/models`; unset = text-only |
+| `SLM_SECONDARY_EXTRA_ARGS` | — | extra llama-server flags (e.g. `--api-key`, `--offline`, `--cpu-range`) |
+| `SLM_SECONDARY_SCHED_BATCH` | — | `1` = run under SCHED_BATCH (yields wake-up preemption to interactive work) |
 
 Unlike the primary, the `LLAMA_ARG_*` MoE/tensor-placement passthroughs do
 not reach this service: the primary's `.env` values name GPU-side buffers
@@ -391,6 +406,7 @@ by the image entrypoint / llama-server directly.
 | `SLM_SECONDARY_MODEL` | compose | — (required) | secondary model, same format as `SLM_MODEL` — served CPU-only on 127.0.0.1:8013, see [Secondary model](#secondary-model) |
 | `SLM_SECONDARY_CTX_SIZE` / `SLM_SECONDARY_PARALLEL` | compose | `8192` / `4` | secondary context / slots |
 | `SLM_SECONDARY_KV_QUANT` / `SLM_SECONDARY_EXTRA_ARGS` | compose | — | secondary KV cache type / extra llama-server flags |
+| `SLM_SCHED_BATCH` (secondary: `SLM_SECONDARY_SCHED_BATCH`) | compose | — | `1` = serve under SCHED_BATCH — see [Secondary model](#secondary-model) |
 | `SLM_UID` / `SLM_GID` | compose | `1000` | container uid:gid, keeps `./data` host-user-owned |
 | `SLM_GROUP_ADD` | scripts | — | supplementary host group ids (space/comma separated) for group-restricted `/dev/dri/renderD*` nodes; compose: `group_add` |
 | `LLAMA_ARG_CPU_MOE`, `LLAMA_ARG_N_CPU_MOE`, `LLAMA_ARG_OVERRIDE_TENSOR` | both (passthrough) | — | MoE / tensor-placement tuning — see [MoE offload](#moe-offload--tensor-placement) |
