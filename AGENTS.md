@@ -115,6 +115,11 @@
 - When investigating network/services unavailability use `nc -zvw 1 TARGET TARGET_PORT`, `curl -vkL TARGET >/dev/null`, `mtr --json --aslookup --mpls --timeout 30 TARGET`;
 - `nc -zuvw2 host port` "succeeding" proves nothing for UDP: a UDP `connect()` never fails on a remote host, so it reports success even when every packet is silently dropped. Verify UDP reachability with a server-side `tcpdump -ni <wan_if> udp port <port>` while generating traffic, or `mtr --udp`;
 - HAL8999 htop monitoring (identified 2026-11-02): the `llama-s:disk$0` rows (comm bytes od-verified, `$` is literal and easy to misread as digits at small fonts) are NOT llama.cpp code — no such strings in `/app/bin/*`; the `disk$` literal lives in Mesa `/usr/lib/libvulkan_radeon.so`. They are RADV's shader-disk-cache worker queue threads, named `<comm-truncated-to-7>:<queue>$<index>`; two cache queues → both show index `$0`. Created at RADV init, they async-write the pipeline caches (container `$HOME/.cache/{mesa_shader_cache,radv_builtin_shaders}`) once during model load, then park forever on a condvar at nice 19 with ~0 CPU (TIME+ <0.2 s over 5.5 h) — harmless. htop CPU-meter BLUE = the nice>0 bucket (htop CRT.c `CPU_NICE`); `--prio -1` = GGML_SCHED_PRIO_LOW which does `setpriority(PRIO_PROCESS, 0, 5)` (common.cpp) + SCHED_BATCH on pool threads (ggml-cpu.c) → the whole llama-server runs at nice 5 and all inference time paints blue by design; red tail = kernel/system time, green = nice-0 user time (qemu vCPU threads).
+- HAL8999 `secondary` service: experiment CONCLUDED 2026-11-02, brought
+  down (`docker compose down secondary`) — not needed. Deployed stack is
+  `vulkan-amd` chat + `embedder-amd` only. The SLM_SECONDARY_* config in
+  the host `.env` and the `compose.override.yaml` stanza are kept, so a
+  re-enable is just `docker compose up -d secondary`.
 
 ## Upstream watch list (deployment: HAL8999 vulkan-amd)
 - LANDED in llama.cpp v0.7.0 (was: RFC #28248 / issue #20757): GPU cache
