@@ -50,6 +50,25 @@
   (allowed: f32 f16 bf16 q8_0 q4_0 q4_1 iq4_nl q5_0 q5_1). Quantized V
   cache requires FA on — `SLM_KV_QUANT` wraps the exact trio
   (`--flash-attn on -ctk/-ctv <type>`) in `docker/entrypoint.sh`.
+- llama.cpp v0.7.0 server slots/cache endpoints and ACTIVE defaults (verified
+  2026-11-02 against vendored sources in `.tmp/` + live HAL8999): the slots
+  endpoint is `GET /slots` — `/v1/slots` 404s (older docs/AGENTS entries said
+  /v1/slots); `GET /metrics` 501s without `--metrics` (the endpoint is
+  compiled in — the 501 is a runtime gate, "Start it with --metrics"; our
+  entrypoint passes `--metrics` on every service since 2026-11-02; behind
+  the API key when one is set, only /health is public). Slot fields use `id`/`is_processing`/
+  `n_prompt_tokens` (not `id_slot`). Unset-but-active flags on our servers:
+  `--slot-prompt-similarity 0.1` (LCP-based idle-slot pick; miss → LRU path
+  which force-saves the slot state into the RAM prompt cache = a full
+  VRAM↔RAM copy even when restoring the slot's own state),
+  `--cache-ram 8192` MiB prompt cache (anon RAM, NOT page-cache reclaimable —
+  matters for the no-mlock slack budget), `--ctx-checkpoints 32` per slot
+  (`--checkpoint-min-step 8192`, prefix-KV copies in RAM, never after mtmd
+  image chunks), `--cache-idle-slots on`, `--cont-batching on`. Sequential
+  append-only chat/tool flows normally need NO cache copies: similarity path
+  picks the slot with f_keep≈1 and launch-time LCP prefills only the new
+  suffix (observed live: 560-token prefill on a 9.9k-token slot). Prompt-cache
+  internals log only at `-lv 4` (trace; default 3).
 - llama.cpp v0.7.0 behavior changes (checked against our setup): the server
   default port changed 8080 → 9931 (no impact — entrypoint always passes
   `--port`); `--jinja` is now default-enabled (the entrypoint's explicit
@@ -95,6 +114,7 @@
 - For long-running commands (e.g. `docker compose up --build`), detach with `setsid ... </dev/null >path/.tmp/run.log 2>&1 & disown` and poll the log in separate tool calls; do not pipe through `tail` (it buffers until EOF, so a hanging build shows no output and times out the tool).
 - When investigating network/services unavailability use `nc -zvw 1 TARGET TARGET_PORT`, `curl -vkL TARGET >/dev/null`, `mtr --json --aslookup --mpls --timeout 30 TARGET`;
 - `nc -zuvw2 host port` "succeeding" proves nothing for UDP: a UDP `connect()` never fails on a remote host, so it reports success even when every packet is silently dropped. Verify UDP reachability with a server-side `tcpdump -ni <wan_if> udp port <port>` while generating traffic, or `mtr --udp`;
+- HAL8999 htop monitoring (identified 2026-11-02): the `llama-s:disk$0` rows (comm bytes od-verified, `$` is literal and easy to misread as digits at small fonts) are NOT llama.cpp code — no such strings in `/app/bin/*`; the `disk$` literal lives in Mesa `/usr/lib/libvulkan_radeon.so`. They are RADV's shader-disk-cache worker queue threads, named `<comm-truncated-to-7>:<queue>$<index>`; two cache queues → both show index `$0`. Created at RADV init, they async-write the pipeline caches (container `$HOME/.cache/{mesa_shader_cache,radv_builtin_shaders}`) once during model load, then park forever on a condvar at nice 19 with ~0 CPU (TIME+ <0.2 s over 5.5 h) — harmless. htop CPU-meter BLUE = the nice>0 bucket (htop CRT.c `CPU_NICE`); `--prio -1` = GGML_SCHED_PRIO_LOW which does `setpriority(PRIO_PROCESS, 0, 5)` (common.cpp) + SCHED_BATCH on pool threads (ggml-cpu.c) → the whole llama-server runs at nice 5 and all inference time paints blue by design; red tail = kernel/system time, green = nice-0 user time (qemu vCPU threads).
 
 ## Upstream watch list (deployment: HAL8999 vulkan-amd)
 - LANDED in llama.cpp v0.7.0 (was: RFC #28248 / issue #20757): GPU cache

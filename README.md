@@ -6,7 +6,8 @@ transformation workloads, packaged as an Arch Linux Docker image.
 The service is [llama.cpp](https://github.com/ggml-org/llama.cpp)'s
 `llama-server`: a single-binary OpenAI-compatible HTTP server
 (`/v1/chat/completions`, streaming and non-streaming) that runs small local
-models on one GPU. It is a drop-in backend for any client speaking the
+models on one GPU. The image entrypoint also enables the Prometheus
+`/metrics` endpoint (behind the API key when one is set). It is a drop-in backend for any client speaking the
 OpenAI chat-completions protocol — repoint `base_url` and you have replaced
 a hosted LLM API with a local GPU.
 
@@ -583,8 +584,8 @@ for delta in c.complete_stream("short fragment", params=CallParams(max_tokens=64
 | `temperature`, `max_tokens` | same fields via `CallParams` |
 
 `llama-server` implements the chat-completions and completions endpoints
-(`GET /v1/models`, `GET /health` included); the Responses API is not part of
-the surface.
+(`GET /v1/models`, `GET /health`, Prometheus `GET /metrics` included); the
+Responses API is not part of the surface.
 
 ## Models
 

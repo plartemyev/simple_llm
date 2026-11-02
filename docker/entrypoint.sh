@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
-# llama-server launcher.
+# llama-server launcher. Every service starts with the Prometheus /metrics
+# endpoint enabled (--metrics; behind the API key when one is set — only
+# /health is public).
 #
 # Configuration via environment variables (all optional except SLM_MODEL):
 #   SLM_MODEL       "repo:quant" HF id (downloaded and cached on first start)
@@ -51,6 +53,10 @@ args=(
   --parallel "${PARALLEL}"
   --n-gpu-layers "${NGL}"
   --jinja
+  # Prometheus /metrics endpoint, always on (v0.7.0 gates it behind this
+  # flag at runtime). Guarded by the API key when one is set: only /health
+  # is public.
+  --metrics
 )
 
 if [ -n "${SLM_KV_QUANT:-}" ]; then
